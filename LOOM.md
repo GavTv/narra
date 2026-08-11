@@ -40,6 +40,7 @@
 - Fallback без ключа — демо всегда живо.
 
 ## 4:30–5:00 — Финал
-«Live: [URL]. GitHub: [URL]. Стек: Next.js, Gemini, LangGraph, FSD.»
+«Live: https://narra-mu.vercel.app. GitHub: https://github.com/GavTv/narra. Стек: Next.js, Gemini, LangGraph, FSD.»
+
 
 Стоп. В описании Loom вставь обе ссылки.

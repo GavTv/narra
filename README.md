@@ -2,6 +2,10 @@
 
 Микро-SaaS, который превращает CSV, XLSX или сырой текст в короткий AI-нарратив, 2–3 подходящих графика и чат по данным.
 
+**Live:** https://narra-mu.vercel.app  
+**GitHub:** https://github.com/GavTv/narra
+
+
 ## Возможности
 
 - drag-and-drop загрузка CSV/XLSX и вставка текста;
