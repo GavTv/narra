@@ -1,4 +1,5 @@
 import type { ChartSpec, DashboardAnalysis, Metric } from "@/entities/analysis";
+import { NO_DATA_STUB } from "@/shared/consts/messages";
 import { formatNumber, toNumber } from "@/shared/lib/format";
 
 import type { DataSource } from "../model/types";
@@ -647,6 +648,17 @@ export function answerLocally(source: DataSource, question: string) {
   const conversationalAnswer = localConversationAnswer(question);
   if (conversationalAnswer) return conversationalAnswer;
 
+  if (
+    /что\s+(?:это|за)|что\s+за\s+(?:файл|отч|таблиц)|какой\s+(?:это\s+)?файл|о\s+ч[её]м\s+(?:этот\s+)?(?:файл|отч)|структур|какие\s+колон|опиши\s+(?:файл|отч)/i.test(
+      question,
+    )
+  ) {
+    if (!source.headers.length) {
+      return `Это текстовый файл «${source.name}»: около ${source.stats.rows} фрагментов. Можно спросить о фактах из текста.`;
+    }
+    return `Это табличный отчёт «${source.name}»: ${source.stats.rows} строк, колонки — ${source.headers.join(", ")}.`;
+  }
+
   const salesAnswer = answerSalesQuestion(source, question);
   // undefined = not a sales dataset; null = sales dataset but no specialized match
   if (typeof salesAnswer === "string") return salesAnswer;
@@ -666,7 +678,7 @@ export function answerLocally(source: DataSource, question: string) {
     (/(?:выруч|revenue)/i.test(normalized)
       ? columns.find((column) => /выруч|revenue|sales/i.test(column.name))
       : undefined) ??
-    (/сколько|сумм|всего|итог|максим|средн|миниму/i.test(normalized) &&
+    (/сколько|сумм|всего|итог|максим|средн|миниму|пик/i.test(normalized) &&
     columns.length === 1
       ? columns[0]
       : undefined);
@@ -712,5 +724,5 @@ export function answerLocally(source: DataSource, question: string) {
     return `В отчёте найден связанный фрагмент: «${matchingLine.line.slice(0, 240)}». Более точного вывода без дополнительных данных сделать нельзя.`;
   }
 
-  return "В этом отчёте нет такой информации.";
+  return NO_DATA_STUB;
 }

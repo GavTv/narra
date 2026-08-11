@@ -71,6 +71,25 @@ describe("answerDeterministically", () => {
     expect(result?.answer).toContain("270");
   });
 
+  it("describes the file from schema without hard-coded phrases per dataset", () => {
+    const result = answerDeterministically(salesFixture, "Что это за файл?");
+
+    expect(result?.answer).toContain("sales.csv");
+    expect(result?.answer).toContain("Дата");
+    expect(result?.answer).toContain("Товар");
+    expect(result?.citations[0]?.id).toBe("schema");
+  });
+
+  it("finds the sales peak day from column structure", () => {
+    const result = answerDeterministically(
+      salesFixture,
+      "Когда был пик продаж?",
+    );
+
+    expect(result?.answer).toMatch(/01\.07\.2026|2026-07-01/);
+    expect(result?.answer).toContain("19");
+  });
+
   it("does not guess an ambiguous numeric column", () => {
     expect(
       answerDeterministically(marketingFixture, "Какой максимум?"),

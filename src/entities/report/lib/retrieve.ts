@@ -63,10 +63,15 @@ const CANONICAL_PREFIXES: Array<[string, string]> = [
   ["расход", "расход"],
   ["сумм", "сумма"],
   ["средн", "среднее"],
-  ["максим", "максимум"],
-  ["наибольш", "максимум"],
-  ["миним", "минимум"],
-  ["наименьш", "минимум"],
+  ["пик", "максимум"],
+  ["пиков", "максимум"],
+  ["peak", "максимум"],
+  ["файл", "отчёт"],
+  ["отчёт", "отчёт"],
+  ["таблиц", "отчёт"],
+  ["колон", "колонка"],
+  ["столб", "колонка"],
+  ["структур", "структура"],
   ["количеств", "количество"],
   ["конвер", "конверсия"],
   ["обращен", "обращение"],
@@ -226,9 +231,17 @@ export function retrieveChunks(
   limit = 6,
 ) {
   const schema = index.chunks.find((chunk) => chunk.kind === "schema");
+  const bodyChunks = index.chunks.filter((chunk) => chunk.kind !== "schema");
   const ranked = rankChunks(index, question)
     .slice(0, Math.max(1, limit - Number(Boolean(schema))))
     .map((result) => result.chunk);
 
-  return schema ? [schema, ...ranked] : ranked;
+  // Если лексический поиск ничего не нашёл (мета-вопрос и т.п.) —
+  // отдаём схему и небольшой срез строк, чтобы модель видела структуру.
+  const evidence =
+    ranked.length > 0
+      ? ranked
+      : bodyChunks.slice(0, Math.max(1, limit - Number(Boolean(schema))));
+
+  return schema ? [schema, ...evidence] : evidence;
 }

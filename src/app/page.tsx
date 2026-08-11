@@ -139,7 +139,17 @@ function Landing({
 }
 
 export default function Home() {
-  const { status, source, analysis, error, analyze, reset } = useAnalyzeSession();
+  const { status, source, analysis, error, restored, analyze, reset } =
+    useAnalyzeSession();
+
+  if (!restored) {
+    return (
+      <>
+        <Header />
+        <main className="mx-auto min-h-screen w-full max-w-[1440px] px-4 pt-28" />
+      </>
+    );
+  }
 
   if (status === "loading" && source) {
     return (

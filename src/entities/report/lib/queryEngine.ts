@@ -47,7 +47,11 @@ function operationFromQuestion(question: string): Operation | null {
   const normalized = question.toLowerCase();
 
   if (/средн|average|mean/.test(normalized)) return "average";
-  if (/максим|наибольш|сам[а-яё]*\s+(?:больш|высок)|maximum|max\b/.test(normalized)) {
+  if (
+    /максим|наибольш|сам[а-яё]*\s+(?:больш|высок)|пик|пиков|maximum|max\b|peak/.test(
+      normalized,
+    )
+  ) {
     return "max";
   }
   if (/миним|наименьш|сам[а-яё]*\s+(?:мал|низк)|minimum|min\b/.test(normalized)) {
@@ -57,6 +61,43 @@ function operationFromQuestion(question: string): Operation | null {
   if (/сколько|количеств|count/.test(normalized)) return "count";
 
   return null;
+}
+
+function isStructureQuestion(question: string) {
+  return /что\s+(?:это|за)|что\s+за\s+(?:файл|отч|таблиц)|какой\s+(?:это\s+)?файл|о\s+ч[её]м\s+(?:этот\s+)?(?:файл|отч)|структур|какие\s+колон|какие\s+столб|опиши\s+(?:файл|отч|таблиц)|что\s+внутри|из\s+чего\s+состоит/i.test(
+    question,
+  );
+}
+
+function isTemporalQuestion(question: string) {
+  return /когда|в\s+какой\s+день|по\s+дням|по\s+датам|за\s+какой\s+день|в\s+какую\s+дат/i.test(
+    question,
+  );
+}
+
+function dateLikeColumn(categories: CategoryColumn[]) {
+  return (
+    categories.find((column) =>
+      /дата|date|день|day|месяц|month|период|period|время|time|week/i.test(
+        column.name,
+      ),
+    ) ?? null
+  );
+}
+
+function answerStructureQuestion(source: DataSource): ChatAnswer {
+  if (!source.headers.length) {
+    return {
+      answer: `Это текстовый файл «${source.name}»: около ${source.stats.rows} фрагментов, ${formatNumber(source.stats.characters)} символов. Можно спросить о фактах и формулировках из текста.`,
+      citations: [{ id: "schema", label: "Структура отчёта" }],
+    };
+  }
+
+  const preview = source.headers.join(", ");
+  return {
+    answer: `Это табличный отчёт «${source.name}»: ${source.stats.rows} строк данных и ${source.stats.columns} колонок (${preview}). Могу посчитать итоги, пики, сравнения по этим полям.`,
+    citations: [{ id: "schema", label: "Структура отчёта" }],
+  };
 }
 
 function headerScore(header: string, questionTokens: string[]) {
@@ -178,8 +219,9 @@ function calculateGrouped(
   >();
 
   for (const item of numeric.values) {
-    const label = String(source.rows[item.rowIndex]?.[category.index] ?? "").trim();
-    if (!label) continue;
+    const raw = source.rows[item.rowIndex]?.[category.index];
+    const label = formatCell(raw).trim();
+    if (!label || label === "—") continue;
     const group = groups.get(label) ?? { values: [], rowIndexes: [] };
     group.values.push(item.value);
     group.rowIndexes.push(item.rowIndex);
@@ -205,10 +247,13 @@ function calculateGrouped(
         ? Math.max(...aggregated.map((item) => item.value))
         : Math.min(...aggregated.map((item) => item.value));
     const matches = aggregated.filter((item) => item.value === target);
+    const isDateCategory = /дата|date|день|day/i.test(category.name);
     const direction = operation === "max" ? "Наибольшее" : "Наименьшее";
     const answer =
       matches.length === 1
-        ? `${direction} суммарное значение «${numeric.name}» у категории «${matches[0].label}» — ${formatNumber(matches[0].value)}.`
+        ? isDateCategory
+          ? `${operation === "max" ? "Пик" : "Минимум"} «${numeric.name}» — ${formatNumber(matches[0].value)} (${category.name}: ${matches[0].label}).`
+          : `${direction} суммарное значение «${numeric.name}» у категории «${matches[0].label}» — ${formatNumber(matches[0].value)}.`
         : `${direction} суммарное значение «${numeric.name}» одинаково у нескольких категорий:\n${matches
             .map((item) => `• «${item.label}» — ${formatNumber(item.value)}.`)
             .join("\n")}`;
@@ -239,6 +284,10 @@ export function answerDeterministically(
   source: DataSource,
   question: string,
 ): ChatAnswer | null {
+  if (isStructureQuestion(question)) {
+    return answerStructureQuestion(source);
+  }
+
   const salesAnswer = answerSalesQuestion(source, question);
   if (salesAnswer) {
     return {
@@ -258,13 +307,37 @@ export function answerDeterministically(
   if (!operation || !source.rows.length || !source.headers.length) return null;
 
   const numeric = numericColumns(source);
-  const selectedNumeric = selectColumn(numeric, question);
+  let selectedNumeric = selectColumn(numeric, question);
+
+  // «продажи / выручка / заказы» без точного имени колонки — берём лучший числовой proxy.
+  if (!selectedNumeric && /продаж|выруч|заказ|sales|revenue|orders?/i.test(question)) {
+    selectedNumeric =
+      selectColumn(
+        numeric.filter((column) =>
+          /заказ|order|продаж|sales|выруч|revenue/i.test(column.name),
+        ),
+        question,
+      ) ??
+      numeric.find((column) =>
+        /заказ|order|продаж|sales/i.test(column.name),
+      ) ??
+      numeric.find((column) => /выруч|revenue/i.test(column.name)) ??
+      null;
+  }
+
   if (!selectedNumeric) return null;
 
   const categories = categoryColumns(source, numeric);
-  const selectedCategory = selectColumn(categories, question);
+  const temporalCategory = isTemporalQuestion(question)
+    ? dateLikeColumn(categories)
+    : null;
+  const selectedCategory =
+    temporalCategory ?? selectColumn(categories, question);
   const asksForGrouping =
-    /\bпо\b|како[а-яё]*\s+(?:категор|товар|канал|день|месяц)/i.test(question);
+    Boolean(temporalCategory) ||
+    /\bпо\b|како[а-яё]*\s+(?:категор|товар|канал|день|месяц|дат)/i.test(
+      question,
+    );
 
   if (selectedCategory && asksForGrouping) {
     return calculateGrouped(
