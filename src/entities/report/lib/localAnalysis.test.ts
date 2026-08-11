@@ -48,6 +48,47 @@ describe("analyzeLocally metrics", () => {
     expect(result.summary).not.toMatch(/^В файле «|^Сводка по/i);
   });
 
+  it("keeps safe AI chart types instead of forcing local visuals", () => {
+    const ai = {
+      ...analyzeLocally(salesFixture),
+      generatedBy: "ai" as const,
+      charts: [
+        {
+          id: "ai-line",
+          type: "line" as const,
+          title: "Выручка по дням",
+          subtitle: "Динамика",
+          valueLabel: "Выручка",
+          insight: "Пик на 1 июля.",
+          data: [
+            { label: "2026-07-01", value: 190_000 },
+            { label: "2026-07-02", value: 50_000 },
+            { label: "2026-07-03", value: 30_000 },
+          ],
+        },
+        {
+          id: "ai-pie",
+          type: "pie" as const,
+          title: "Доля товаров",
+          subtitle: "Структура",
+          valueLabel: "Выручка",
+          insight: "Куртка Urban лидирует.",
+          data: [
+            { label: "Куртка Urban", value: 150_000 },
+            { label: "Кепка Street", value: 90_000 },
+            { label: "Рюкзак Trek", value: 30_000 },
+          ],
+        },
+      ],
+    };
+
+    const result = withReportOverview(salesFixture, ai);
+    expect(result.charts).toHaveLength(2);
+    expect(result.charts[0]?.type).toBe("line");
+    expect(result.charts[1]?.type).toBe("pie");
+    expect(result.charts[1]?.insight).toContain("Куртка Urban");
+  });
+
   it("builds a multi-sentence local narrative when AI is unavailable", () => {
     const analysis = analyzeLocally(salesFixture);
     expect(analysis.summary.split(/(?<=[.!?…])\s+/).length).toBeGreaterThanOrEqual(2);

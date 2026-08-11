@@ -389,6 +389,30 @@ function isUsableAiNarrative(summary: string) {
   return sentences.length >= 2 || text.length >= 120;
 }
 
+function isUnsafeChartSpec(chart: ChartSpec) {
+  return /год|year|выпуск|\bid\b|рейтинг|rating|площад|area|комнат|rooms?/i.test(
+    `${chart.title} ${chart.valueLabel} ${chart.secondaryLabel ?? ""}`,
+  );
+}
+
+function metricsLookUnsafe(metrics: Metric[]) {
+  return metrics.some((metric) =>
+    /год|year|выпуск|\bid\b|рейтинг|rating|площад|area|комнат/i.test(
+      `${metric.label} ${metric.detail}`,
+    ),
+  );
+}
+
+function normalizeCharts(charts: ChartSpec[]) {
+  return charts.map((chart) => {
+    if (chart.type !== "line") return chart;
+    return {
+      ...chart,
+      data: mergeChartPointsByDate(chart.data),
+    };
+  });
+}
+
 export function withReportOverview(
   source: DataSource,
   analysis: DashboardAnalysis,
@@ -410,19 +434,26 @@ export function withReportOverview(
     };
   }
 
-  const useLocalVisuals = local.charts.length > 0;
   const keepAiNarrative =
     analysis.generatedBy === "ai" && isUsableAiNarrative(analysis.summary);
 
-  const charts = (useLocalVisuals ? local.charts : analysis.charts).map(
-    (chart) => {
-      if (chart.type !== "line") return chart;
-      return {
-        ...chart,
-        data: mergeChartPointsByDate(chart.data),
-      };
-    },
+  const safeAiCharts =
+    analysis.generatedBy === "ai"
+      ? analysis.charts.filter(
+          (chart) =>
+            !isUnsafeChartSpec(chart) &&
+            Array.isArray(chart.data) &&
+            chart.data.length > 0,
+        )
+      : [];
+  const preferAiCharts = safeAiCharts.length >= 2;
+  const charts = normalizeCharts(
+    (preferAiCharts ? safeAiCharts : local.charts).slice(0, 3),
   );
+  const preferAiMetrics =
+    preferAiCharts &&
+    analysis.metrics.length === 3 &&
+    !metricsLookUnsafe(analysis.metrics);
 
   return {
     ...analysis,
@@ -433,11 +464,12 @@ export function withReportOverview(
       ? analysis.title || overview.title
       : overview.title,
     summary: keepAiNarrative ? analysis.summary : localNarrative,
-    metrics: useLocalVisuals ? local.metrics : analysis.metrics,
+    metrics: preferAiMetrics ? analysis.metrics : local.metrics,
     charts,
-    suggestedQuestions: useLocalVisuals
-      ? local.suggestedQuestions
-      : analysis.suggestedQuestions,
+    suggestedQuestions:
+      preferAiCharts && analysis.suggestedQuestions.length
+        ? analysis.suggestedQuestions
+        : local.suggestedQuestions,
   };
 }
 
@@ -520,7 +552,7 @@ function makeTableAnalysis(source: DataSource): DashboardAnalysis {
       ),
   );
 
-  if (moneyMode && categoryIndex >= 0 && charts.length < 2) {
+  if (moneyMode && categoryIndex >= 0 && charts.length < 3) {
     const groups = new Map<string, number>();
     for (const item of primary.values) {
       const raw = String(source.rows[item.rowIndex]?.[categoryIndex] ?? "").trim();
@@ -532,11 +564,14 @@ function makeTableAnalysis(source: DataSource): DashboardAnalysis {
       .slice(0, 8);
 
     if (ranked.length >= 2) {
+      const usePie = ranked.length <= 6;
       charts.push({
         id: "by-category",
-        type: "bar",
-        title: `Продажи по «${source.headers[categoryIndex]}»`,
-        subtitle: "Сумма",
+        type: usePie ? "pie" : "bar",
+        title: usePie
+          ? `Доля продаж по «${source.headers[categoryIndex]}»`
+          : `Продажи по «${source.headers[categoryIndex]}»`,
+        subtitle: usePie ? "Структура суммы" : "Сумма",
         valueLabel: "Сумма продаж",
         insight: `Лидер — «${ranked[0][0]}»: ${formatNumber(ranked[0][1])}.`,
         data: ranked.map(([label, value]) => ({ label, value })),
@@ -546,7 +581,7 @@ function makeTableAnalysis(source: DataSource): DashboardAnalysis {
     risk &&
     risk.index !== primary.index &&
     !isMoneyColumn(risk.name) &&
-    charts.length < 2
+    charts.length < 3
   ) {
     charts.push({
       id: "risk",
@@ -562,12 +597,35 @@ function makeTableAnalysis(source: DataSource): DashboardAnalysis {
     });
   }
 
+  if (categoryIndex >= 0 && charts.length < 3 && !moneyMode) {
+    const counts = new Map<string, number>();
+    for (const row of source.rows) {
+      const raw = String(row[categoryIndex] ?? "").trim();
+      if (!raw || raw === "—") continue;
+      counts.set(raw, (counts.get(raw) ?? 0) + 1);
+    }
+    const ranked = [...counts.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 8);
+    if (ranked.length >= 2) {
+      charts.push({
+        id: "category-share",
+        type: ranked.length <= 6 ? "pie" : "bar",
+        title: `Структура «${source.headers[categoryIndex]}»`,
+        subtitle: "Доля записей",
+        valueLabel: "Записи",
+        insight: `Чаще всего — «${ranked[0][0]}»: ${ranked[0][1]} из ${source.rows.length}.`,
+        data: ranked.map(([label, value]) => ({ label, value })),
+      });
+    }
+  }
+
   return {
     eyebrow: overview.eyebrow,
     title: overview.title,
     summary: buildLocalNarrative(source),
     metrics,
-    charts: charts.slice(0, 2),
+    charts: charts.slice(0, 3),
     suggestedQuestions: [
       `Какой день был с наибольшей суммой по «${primary.name}»?`,
       `Где максимум по показателю «${primary.name}»?`,

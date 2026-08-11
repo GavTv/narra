@@ -244,15 +244,23 @@ export function ChartCard({
       transition={{ delay: 0.06 * index, duration: 0.4, ease: "easeOut" }}
       className="soft-shadow overflow-hidden rounded-2xl border border-white/80 bg-white/90 p-4 sm:p-5"
     >
-      <div className="mb-3 flex items-center gap-1.5 text-[10px] font-semibold tracking-[0.12em] text-[var(--steel)] uppercase">
+      <div className="mb-2 flex items-center gap-1.5 text-[10px] font-semibold tracking-[0.12em] text-[var(--steel)] uppercase">
         <span className="grid size-6 place-items-center rounded-lg bg-[var(--card)] text-[var(--navy)]">
           <Icon className="size-3" />
         </span>
         {label}
       </div>
+      {chart.subtitle ? (
+        <p className="mb-3 text-xs text-[var(--muted)]">{chart.subtitle}</p>
+      ) : null}
       <div className={wide ? "h-[280px]" : "h-[220px]"}>
         <ChartVisual chart={chart} />
       </div>
+      {chart.insight ? (
+        <p className="mt-3 border-t border-[var(--line)]/70 pt-3 text-xs leading-5 text-[var(--muted)]">
+          {chart.insight}
+        </p>
+      ) : null}
     </motion.div>
   );
 }
