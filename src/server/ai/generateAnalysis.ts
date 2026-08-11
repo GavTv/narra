@@ -213,6 +213,7 @@ async function generateWithGemini({
       `Gemini API: ${result.body.error?.message || `HTTP ${result.response.status}`}`,
     );
   }
+  //name
 
   const body = result.body;
 

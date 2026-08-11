@@ -61,10 +61,29 @@ function operationFromQuestion(question: string): Operation | null {
 
 function headerScore(header: string, questionTokens: string[]) {
   const headerTokens = tokenizeForSearch(header);
-  return headerTokens.reduce(
+  const aliases = headerAliases(header);
+  const searchable = [...new Set([...headerTokens, ...aliases])];
+  return searchable.reduce(
     (score, token) => score + Number(questionTokens.includes(token)),
     0,
   );
+}
+
+function headerAliases(header: string) {
+  const normalized = header.toLowerCase();
+  const aliases: string[] = [];
+
+  if (/заказ|order|продаж|sales/i.test(normalized)) {
+    aliases.push("продаж", "продажа", "продаж", "заказ", "заказы", "sales");
+  }
+  if (/выруч|revenue|sales/i.test(normalized)) {
+    aliases.push("выручка", "выруч", "продаж", "продажа", "revenue", "sales");
+  }
+  if (/расход|cost|spend/i.test(normalized)) {
+    aliases.push("расход", "расходы", "cost");
+  }
+
+  return aliases.flatMap((alias) => tokenizeForSearch(alias));
 }
 
 function selectColumn<T extends { name: string }>(

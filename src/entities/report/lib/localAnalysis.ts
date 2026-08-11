@@ -580,7 +580,7 @@ export function answerSalesQuestion(
 
   if (
     mentionedProduct &&
-    /(?:сколько|всего|итог).*(?:заказ|выруч)|(?:заказ|выруч).*(?:всего|итог)/i.test(
+    /(?:сколько|всего|итог).*(?:заказ|выруч|продаж)|(?:заказ|выруч|продаж).*(?:всего|итог|сколько)/i.test(
       normalized,
     )
   ) {
@@ -590,6 +590,27 @@ export function answerSalesQuestion(
     const revenue = matches.reduce((sum, record) => sum + record.revenue, 0);
     const orders = matches.reduce((sum, record) => sum + record.orders, 0);
     return `У товара «${mentionedProduct}» за период ${salesPeriod(matches)}: выручка — ${formatNumber(revenue)} ₽, всего ${formatNumber(orders)} ${ordersLabel(orders)}.`;
+  }
+
+  if (
+    /(?:сколько|всего|итог).*(?:продаж|заказ|выруч)|(?:продаж|заказ|выруч).*(?:сколько|всего|итог)/i.test(
+      normalized,
+    )
+  ) {
+    const revenue = records.reduce((sum, record) => sum + record.revenue, 0);
+    const orders = records.reduce((sum, record) => sum + record.orders, 0);
+    const period = salesPeriod(records);
+    const asksSalesWord = /продаж/i.test(normalized);
+
+    if (asksRevenue && !asksOrders && !asksSalesWord) {
+      return `За период ${period} суммарная выручка — ${formatNumber(revenue)} ₽.`;
+    }
+
+    if (asksOrders && !asksRevenue && !asksSalesWord) {
+      return `За период ${period} всего ${formatNumber(orders)} ${ordersLabel(orders)}.`;
+    }
+
+    return `За период ${period}: всего ${formatNumber(orders)} ${ordersLabel(orders)}, суммарная выручка — ${formatNumber(revenue)} ₽.`;
   }
 
   return null;
@@ -627,13 +648,28 @@ export function answerLocally(source: DataSource, question: string) {
   if (conversationalAnswer) return conversationalAnswer;
 
   const salesAnswer = answerSalesQuestion(source, question);
-  if (salesAnswer !== undefined) return salesAnswer ?? "Точных данных нет.";
+  // undefined = not a sales dataset; null = sales dataset but no specialized match
+  if (typeof salesAnswer === "string") return salesAnswer;
 
   const normalized = question.toLowerCase();
   const columns = getNumericColumns(source);
   const requestedColumn =
-    columns.find((column) => normalized.includes(column.name.toLowerCase())) ??
-    columns[0];
+    columns.find((column) =>
+      column.name
+        .toLowerCase()
+        .split(/[^a-zа-яё0-9]+/i)
+        .some((token) => token.length >= 3 && normalized.includes(token)),
+    ) ??
+    (/(?:продаж|заказ|sales|orders?)/i.test(normalized)
+      ? columns.find((column) => /заказ|order|продаж|sales/i.test(column.name))
+      : undefined) ??
+    (/(?:выруч|revenue)/i.test(normalized)
+      ? columns.find((column) => /выруч|revenue|sales/i.test(column.name))
+      : undefined) ??
+    (/сколько|сумм|всего|итог|максим|средн|миниму/i.test(normalized) &&
+    columns.length === 1
+      ? columns[0]
+      : undefined);
 
   if (/сколько\s+(строк|запис)/i.test(question)) {
     return `В отчёте ${source.stats.rows} строк данных и ${source.stats.columns} колонок.`;

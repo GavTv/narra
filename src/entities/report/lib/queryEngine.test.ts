@@ -61,6 +61,16 @@ describe("answerDeterministically", () => {
     expect(topFour?.answer).toContain("Куртка Urban");
   });
 
+  it("sums total sales without calling the model", () => {
+    const result = answerDeterministically(
+      salesFixture,
+      "Сколько всего продаж было?",
+    );
+
+    expect(result?.answer).toContain("27");
+    expect(result?.answer).toContain("270");
+  });
+
   it("does not guess an ambiguous numeric column", () => {
     expect(
       answerDeterministically(marketingFixture, "Какой максимум?"),
