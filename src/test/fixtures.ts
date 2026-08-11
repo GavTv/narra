@@ -50,6 +50,41 @@ export const multiMonthSalesFixture: DataSource = {
   },
 };
 
+export const hiringFixture: DataSource = {
+  name: "hiring.csv",
+  kind: "csv",
+  content: [
+    "Дата отклика,Вакансия,Кандидат,Источник,Этап,Итог",
+    "2026-01-10,Frontend,1001,HH,Скрининг HR,В процессе",
+    "2026-01-11,Frontend,1002,LinkedIn,Оффер,Оффер принят",
+    "2026-01-12,Backend,1003,HH,Оффер,Отказ",
+    "2026-01-13,Backend,1004,Реферал,Тестовое задание,Отказ",
+    "2026-01-14,Frontend,1005,HH,Скрининг HR,Отказ",
+    "2026-01-15,Backend,1006,LinkedIn,Финальное интервью,В процессе",
+  ].join("\n"),
+  headers: [
+    "Дата отклика",
+    "Вакансия",
+    "Кандидат",
+    "Источник",
+    "Этап",
+    "Итог",
+  ],
+  rows: [
+    ["2026-01-10", "Frontend", 1001, "HH", "Скрининг HR", "В процессе"],
+    ["2026-01-11", "Frontend", 1002, "LinkedIn", "Оффер", "Оффер принят"],
+    ["2026-01-12", "Backend", 1003, "HH", "Оффер", "Отказ"],
+    ["2026-01-13", "Backend", 1004, "Реферал", "Тестовое задание", "Отказ"],
+    ["2026-01-14", "Frontend", 1005, "HH", "Скрининг HR", "Отказ"],
+    ["2026-01-15", "Backend", 1006, "LinkedIn", "Финальное интервью", "В процессе"],
+  ],
+  stats: {
+    rows: 6,
+    columns: 6,
+    characters: 280,
+  },
+};
+
 export const marketingFixture: DataSource = {
   name: "marketing.csv",
   kind: "csv",

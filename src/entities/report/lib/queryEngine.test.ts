@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { answerDeterministically } from "@/entities/report";
 import {
+  hiringFixture,
   marketingFixture,
   multiMonthSalesFixture,
   salesFixture,
@@ -114,5 +115,30 @@ describe("answerDeterministically", () => {
     expect(
       answerDeterministically(marketingFixture, "Какой максимум?"),
     ).toBeNull();
+  });
+
+  it("leaves stage filters to the model instead of keyword matching", () => {
+    expect(
+      answerDeterministically(hiringFixture, "Сколько кандидатов проходит оффер"),
+    ).toBeNull();
+    expect(
+      answerDeterministically(hiringFixture, "Сколько кандидатов получили отказ?"),
+    ).toBeNull();
+    expect(
+      answerDeterministically(
+        hiringFixture,
+        "Сколько кандидатов прошли скриннинг",
+      ),
+    ).toBeNull();
+  });
+
+  it("counts total candidates as row count", () => {
+    const result = answerDeterministically(
+      hiringFixture,
+      "Сколько всего кандидатов?",
+    );
+
+    expect(result?.answer).toMatch(/6/);
+    expect(result?.answer).not.toMatch(/отказался|Отказ|Оффер/i);
   });
 });

@@ -8,6 +8,58 @@ function cellText(value: unknown) {
   return String(value).replace(/\s+/g, " ").trim();
 }
 
+function isLikelyMetricColumn(source: DataSource, columnIndex: number) {
+  const numericCount = source.rows.reduce((total, row) => {
+    const raw = row[columnIndex];
+    if (typeof raw === "number" && Number.isFinite(raw)) return total + 1;
+    if (typeof raw !== "string") return total;
+    const trimmed = raw.trim();
+    if (!trimmed || /[a-zа-яё]/i.test(trimmed)) return total;
+    return /^-?\d+(?:[.,]\d+)?$/.test(trimmed.replace(/\s/g, ""))
+      ? total + 1
+      : total;
+  }, 0);
+
+  return numericCount >= source.rows.length * 0.6;
+}
+
+function categoricalDistributions(source: DataSource) {
+  if (!source.headers.length || !source.rows.length) return [];
+
+  const blocks: string[] = [];
+
+  for (let columnIndex = 0; columnIndex < source.headers.length; columnIndex += 1) {
+    const header = source.headers[columnIndex];
+    if (
+      /кандидат|candidate|сотрудник|имя|фио|\bname\b|email|телефон|phone|\bid\b/i.test(
+        header,
+      )
+    ) {
+      continue;
+    }
+    if (isLikelyMetricColumn(source, columnIndex)) continue;
+
+    const counts = new Map<string, number>();
+    for (const row of source.rows) {
+      const label = cellText(row[columnIndex]);
+      if (!label || label === "—") continue;
+      counts.set(label, (counts.get(label) ?? 0) + 1);
+    }
+
+    if (counts.size < 2 || counts.size > 80) continue;
+
+    const ranked = [...counts.entries()]
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], "ru"))
+      .slice(0, 40)
+      .map(([value, count]) => `${value} — ${count}`)
+      .join("; ");
+
+    blocks.push(`${header} (все ${source.rows.length} строк): ${ranked}`);
+  }
+
+  return blocks;
+}
+
 function schemaText(source: DataSource) {
   if (!source.headers.length) {
     return [
@@ -18,12 +70,20 @@ function schemaText(source: DataSource) {
     ].join("\n");
   }
 
-  return [
+  const lines = [
     `Источник: ${source.name}`,
     `Строк данных: ${source.stats.rows}`,
     `Колонок: ${source.stats.columns}`,
     `Колонки: ${source.headers.join(", ")}`,
-  ].join("\n");
+  ];
+
+  const distributions = categoricalDistributions(source);
+  if (distributions.length) {
+    lines.push("Распределения по категориям (полный файл):");
+    lines.push(...distributions);
+  }
+
+  return lines.join("\n");
 }
 
 function tableChunks(source: DataSource): ReportChunk[] {

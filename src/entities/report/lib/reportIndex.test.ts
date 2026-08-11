@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { buildReportIndex } from "@/entities/report";
 import type { DataSource } from "@/entities/report";
-import { salesFixture } from "@/test/fixtures";
+import { hiringFixture, salesFixture } from "@/test/fixtures";
 
 describe("buildReportIndex", () => {
   it("creates schema and addressable row chunks", () => {
@@ -19,6 +19,17 @@ describe("buildReportIndex", () => {
       meta: { rowStart: 2, rowEnd: 2 },
     });
     expect(index.chunks[1].text).toContain("Товар: Куртка Urban");
+  });
+
+  it("puts full categorical distributions into schema for the model", () => {
+    const index = buildReportIndex(hiringFixture);
+
+    expect(index.schema).toContain("Распределения по категориям");
+    expect(index.schema).toContain("Этап");
+    expect(index.schema).toContain("Оффер — 2");
+    expect(index.schema).toContain("Скрининг HR — 2");
+    expect(index.schema).toContain("Итог");
+    expect(index.schema).toContain("Отказ — 3");
   });
 
   it("splits long text with overlapping line ranges", () => {

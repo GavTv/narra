@@ -18,9 +18,17 @@ type CategoryColumn = {
   name: string;
 };
 
+function isNonMetricColumn(name: string) {
+  return /кандидат|candidate|сотрудник|employee|клиент|customer|имя|фио|\bname\b|email|телефон|phone|\bid\b|uuid|user/i.test(
+    name,
+  );
+}
+
 function numericColumns(source: DataSource): NumericColumn[] {
   return source.headers
     .map((name, index) => {
+      if (isNonMetricColumn(name)) return null;
+
       const values = source.rows.flatMap((row, rowIndex) => {
         const value = toNumber(row[index]);
         return value === null ? [] : [{ rowIndex, value }];
@@ -159,6 +167,25 @@ function answerStructureQuestion(source: DataSource): ChatAnswer {
   return {
     answer: `Это табличный отчёт «${source.name}»: ${source.stats.rows} строк данных и ${source.stats.columns} колонок (${preview}). Могу посчитать итоги, пики, сравнения по этим полям.`,
     citations: [{ id: "schema", label: "Структура отчёта" }],
+  };
+}
+
+function isTotalEntityCountQuestion(question: string) {
+  return /^сколько\s+(?:всего\s+)?(?:кандидат|человек|заявок|отклик|строк|запис)[а-яё]*\s*\??$/i.test(
+    question.trim(),
+  );
+}
+
+function answerTotalEntityCount(
+  source: DataSource,
+  question: string,
+): ChatAnswer | null {
+  if (!isTotalEntityCountQuestion(question)) return null;
+  if (!source.rows.length) return null;
+
+  return {
+    answer: `В отчёте ${formatNumber(source.stats.rows)} кандидат${source.stats.rows === 1 ? "" : source.stats.rows < 5 ? "а" : "ов"} (строк данных).`,
+    citations: allRowsCitation(source),
   };
 }
 
@@ -384,6 +411,9 @@ export function answerDeterministically(
       citations: [{ id: "schema", label: "Структура отчёта" }],
     };
   }
+
+  const categoryCount = answerTotalEntityCount(source, question);
+  if (categoryCount) return categoryCount;
 
   const operation = operationFromQuestion(question);
   if (!operation || !source.rows.length || !source.headers.length) return null;
