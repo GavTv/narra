@@ -74,7 +74,7 @@ export function Dashboard({ source, analysis }: DashboardProps) {
           <h1 className="font-display mt-4 max-w-4xl text-[clamp(1.85rem,4vw,3.1rem)] leading-[1.1] font-semibold tracking-[-0.035em] text-[var(--ink)]">
             {analysis.title}
           </h1>
-          <p className="mt-3 max-w-2xl text-base leading-7 text-[var(--muted)]">
+          <p className="mt-3 max-w-3xl text-base leading-7 text-[var(--muted)]">
             {analysis.summary}
           </p>
         </div>

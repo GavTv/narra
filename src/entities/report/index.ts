@@ -8,5 +8,5 @@ export { sampleData } from "./model/sampleData";
 export { buildReportIndex } from "./lib/reportIndex";
 export { retrieveChunks, rankChunks } from "./lib/retrieve";
 export { answerDeterministically } from "./lib/queryEngine";
-export { analyzeLocally, answerLocally, withReportOverview } from "./lib/localAnalysis";
+export { analyzeLocally, answerLocally, withReportOverview, buildLocalNarrative } from "./lib/localAnalysis";
 export { sourceKindLabel } from "./lib/sourceKindLabel";

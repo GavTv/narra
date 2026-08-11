@@ -31,6 +31,29 @@ describe("analyzeLocally metrics", () => {
     expect(analysis.charts.some((chart) => chart.title === "Цена")).toBe(false);
   });
 
+  it("keeps a grounded AI hero narrative instead of the template summary", () => {
+    const ai = {
+      ...analyzeLocally(salesFixture),
+      generatedBy: "ai" as const,
+      eyebrow: "Главный инсайт",
+      title: "Куртки тянут неделю",
+      summary:
+        "Основная выручка сосредоточена у «Куртка Urban». Пик продаж приходится на 1 июля. «Кепка Street» держит второе место по сумме.",
+    };
+
+    const result = withReportOverview(salesFixture, ai);
+    expect(result.title).toBe("Куртки тянут неделю");
+    expect(result.summary).toContain("Куртка Urban");
+    expect(result.summary).toContain("второе место");
+    expect(result.summary).not.toMatch(/^В файле «|^Сводка по/i);
+  });
+
+  it("builds a multi-sentence local narrative when AI is unavailable", () => {
+    const analysis = analyzeLocally(salesFixture);
+    expect(analysis.summary.split(/(?<=[.!?…])\s+/).length).toBeGreaterThanOrEqual(2);
+    expect(analysis.summary).toMatch(/пик|лидер|выгрузка/i);
+  });
+
   it("replaces AI year charts when sanitizing overview", () => {
     const dirty = {
       ...analyzeLocally(salesFixture),

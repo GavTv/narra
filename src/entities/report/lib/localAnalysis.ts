@@ -293,6 +293,102 @@ export function reportOverview(source: DataSource) {
   return { title, summary: contentSummary(source), eyebrow: "Обзор отчёта" };
 }
 
+/** 2–3 factual sentences for the hero when AI narrative is unavailable. */
+export function buildLocalNarrative(source: DataSource): string {
+  if (!source.headers.length || !source.rows.length) {
+    const overview = reportOverview(source);
+    return `${overview.summary} Спрашивайте факты в чате; графики появятся из таблицы.`;
+  }
+
+  const columns = getNumericColumns(source);
+  const primary =
+    columns.find((column) => isMoneyColumn(column.name)) ?? columns[0];
+  const topic = reportTopic(source);
+  const stem = fileStem(source.name);
+  const sentences: string[] = [
+    topic.startsWith("«")
+      ? `Выгрузка «${stem}» содержит ${source.stats.rows} записей по теме ${topic}.`
+      : `Выгрузка «${stem}» содержит ${source.stats.rows} записей по ${topic}.`,
+  ];
+
+  if (!primary) {
+    sentences.push(contentSummary(source));
+    return sentences.slice(0, 2).join(" ");
+  }
+
+  const labels = getLabels(source, columns);
+  const peak = primary.values.reduce((best, item) =>
+    item.value > best.value ? item : best,
+  );
+  const peakLabel = labels[peak.rowIndex] ?? `строке ${peak.rowIndex + 1}`;
+  sentences.push(
+    `Пик по «${primary.name}» — ${formatNumber(primary.max)} (${peakLabel}); среднее — ${formatNumber(primary.average)}.`,
+  );
+
+  const dateIndex = source.headers.findIndex((header) =>
+    /дата|date|день|day|period|период/i.test(header),
+  );
+  const categoryIndex = source.headers.findIndex(
+    (header, index) =>
+      index !== dateIndex &&
+      !columns.some((column) => column.index === index) &&
+      /тип|категор|район|город|регион|товар|product|канал|source|марка|бренд|клуб|филиал|segment|этап|статус/i.test(
+        header,
+      ),
+  );
+
+  if (categoryIndex >= 0 && isMoneyColumn(primary.name)) {
+    const groups = new Map<string, number>();
+    for (const item of primary.values) {
+      const raw = String(
+        source.rows[item.rowIndex]?.[categoryIndex] ?? "",
+      ).trim();
+      if (!raw || raw === "—") continue;
+      groups.set(raw, (groups.get(raw) ?? 0) + item.value);
+    }
+    const ranked = [...groups.entries()].sort((a, b) => b[1] - a[1]);
+    const total = ranked.reduce((sum, [, value]) => sum + value, 0);
+    if (ranked.length >= 2 && total > 0) {
+      const share = Math.round((ranked[0][1] / total) * 100);
+      sentences.push(
+        `Лидер по «${source.headers[categoryIndex]}» — «${ranked[0][0]}» (около ${share}% суммы).`,
+      );
+    }
+  } else if (categoryIndex >= 0) {
+    const counts = new Map<string, number>();
+    for (const row of source.rows) {
+      const raw = String(row[categoryIndex] ?? "").trim();
+      if (!raw || raw === "—") continue;
+      counts.set(raw, (counts.get(raw) ?? 0) + 1);
+    }
+    const ranked = [...counts.entries()].sort((a, b) => b[1] - a[1]);
+    if (ranked.length >= 2) {
+      const share = Math.round((ranked[0][1] / source.rows.length) * 100);
+      sentences.push(
+        `Чаще всего встречается «${ranked[0][0]}» в «${source.headers[categoryIndex]}» — ${ranked[0][1]} из ${source.rows.length} (${share}%).`,
+      );
+    }
+  } else {
+    const secondary =
+      columns.find((column) => column.index !== primary.index) ?? null;
+    if (secondary) {
+      sentences.push(
+        `Дополнительно смотрим «${secondary.name}»: максимум ${formatNumber(secondary.max)}, среднее ${formatNumber(secondary.average)}.`,
+      );
+    }
+  }
+
+  return sentences.slice(0, 3).join(" ");
+}
+
+function isUsableAiNarrative(summary: string) {
+  const text = summary.trim();
+  if (text.length < 60) return false;
+  if (/^(Сводка по|В файле «|В тексте —|Поля:)/i.test(text)) return false;
+  const sentences = text.split(/(?<=[.!?…])\s+/).filter((part) => part.trim());
+  return sentences.length >= 2 || text.length >= 120;
+}
+
 export function withReportOverview(
   source: DataSource,
   analysis: DashboardAnalysis,
@@ -300,18 +396,23 @@ export function withReportOverview(
   const overview = reportOverview(source);
   const local = analyzeLocally(source);
   const hasTable = source.headers.length > 0 && source.rows.length > 0;
+  const localNarrative = buildLocalNarrative(source);
 
   if (!hasTable) {
+    const keepAi =
+      analysis.generatedBy === "ai" && isUsableAiNarrative(analysis.summary);
     return {
       ...local,
-      eyebrow: local.eyebrow || overview.eyebrow,
-      title: local.title || overview.title,
-      summary: local.summary,
+      eyebrow: keepAi ? analysis.eyebrow || local.eyebrow : local.eyebrow,
+      title: keepAi ? analysis.title || overview.title : local.title || overview.title,
+      summary: keepAi ? analysis.summary : localNarrative,
       charts: [],
     };
   }
 
   const useLocalVisuals = local.charts.length > 0;
+  const keepAiNarrative =
+    analysis.generatedBy === "ai" && isUsableAiNarrative(analysis.summary);
 
   const charts = (useLocalVisuals ? local.charts : analysis.charts).map(
     (chart) => {
@@ -325,9 +426,13 @@ export function withReportOverview(
 
   return {
     ...analysis,
-    eyebrow: overview.eyebrow,
-    title: overview.title,
-    summary: overview.summary,
+    eyebrow: keepAiNarrative
+      ? analysis.eyebrow || overview.eyebrow
+      : overview.eyebrow,
+    title: keepAiNarrative
+      ? analysis.title || overview.title
+      : overview.title,
+    summary: keepAiNarrative ? analysis.summary : localNarrative,
     metrics: useLocalVisuals ? local.metrics : analysis.metrics,
     charts,
     suggestedQuestions: useLocalVisuals
@@ -460,7 +565,7 @@ function makeTableAnalysis(source: DataSource): DashboardAnalysis {
   return {
     eyebrow: overview.eyebrow,
     title: overview.title,
-    summary: overview.summary,
+    summary: buildLocalNarrative(source),
     metrics,
     charts: charts.slice(0, 2),
     suggestedQuestions: [
@@ -486,7 +591,7 @@ function makeTextAnalysis(source: DataSource): DashboardAnalysis {
   return {
     eyebrow: "Текст",
     title: overview.title,
-    summary: `${overview.summary} Спрашивайте факты в чате; графики — из таблиц.`,
+    summary: buildLocalNarrative(source),
     metrics: [
       {
         label: "Символов",
