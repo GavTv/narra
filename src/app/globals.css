@@ -1,0 +1,118 @@
+@import "tailwindcss";
+
+:root {
+  --ink: #17201c;
+  --muted: #66706a;
+  --paper: #f4f3ee;
+  --card: #fcfcf9;
+  --line: #dedfd8;
+  --acid: #d7ff64;
+  --mint: #a9f7d1;
+  --orange: #ff8b5c;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  min-height: 100vh;
+  margin: 0;
+  background:
+    radial-gradient(circle at 8% 3%, rgb(215 255 100 / 16%), transparent 25rem),
+    radial-gradient(circle at 92% 18%, rgb(169 247 209 / 18%), transparent 28rem),
+    var(--paper);
+  color: var(--ink);
+  font-family:
+    Inter, "SF Pro Display", "SF Pro Text", -apple-system, BlinkMacSystemFont,
+    "Segoe UI", sans-serif;
+  text-rendering: optimizeLegibility;
+}
+
+button,
+input,
+textarea {
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+::selection {
+  background: var(--acid);
+  color: #152019;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  border: 3px solid transparent;
+  border-radius: 999px;
+  background: rgb(23 32 28 / 22%);
+  background-clip: padding-box;
+}
+
+.text-balance {
+  text-wrap: balance;
+}
+
+.fine-grid {
+  background-image:
+    linear-gradient(rgb(255 255 255 / 5%) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(255 255 255 / 5%) 1px, transparent 1px);
+  background-size: 32px 32px;
+}
+
+.soft-shadow {
+  box-shadow:
+    0 1px 0 rgb(23 32 28 / 4%),
+    0 16px 45px rgb(23 32 28 / 7%);
+}
+
+.shimmer {
+  position: relative;
+  overflow: hidden;
+}
+
+.shimmer::after {
+  position: absolute;
+  inset: 0;
+  content: "";
+  transform: translateX(-100%);
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgb(255 255 255 / 55%),
+    transparent
+  );
+  animation: shimmer 1.5s infinite;
+}
+
+@keyframes shimmer {
+  to {
+    transform: translateX(100%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
