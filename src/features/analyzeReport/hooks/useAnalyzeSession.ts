@@ -43,11 +43,10 @@ const serverSnapshot: SessionSnapshot = {
 };
 
 let memorySession: SessionSnapshot | null = null;
-let epoch = 0;
-let cachedSnapshot: SessionSnapshot & { epoch: number } = {
-  ...serverSnapshot,
-  epoch: -1,
-};
+let hydrated = false;
+let version = 0;
+let cachedSnapshot: SessionSnapshot = serverSnapshot;
+let cachedVersion = -1;
 const listeners = new Set<() => void>();
 
 function isDataSource(value: unknown): value is DataSource {
@@ -92,15 +91,17 @@ function storedToSnapshot(saved: StoredSession | null): SessionSnapshot {
   };
 }
 
-function computeSnapshot(): SessionSnapshot {
-  if (memorySession) return memorySession;
-  if (typeof window === "undefined") return serverSnapshot;
-  return storedToSnapshot(readSession<StoredSession>());
+function hydrateFromStorage() {
+  if (hydrated || typeof window === "undefined") return;
+  memorySession = storedToSnapshot(readSession<StoredSession>());
+  hydrated = true;
+  version += 1;
 }
 
 function emit(next: SessionSnapshot) {
   memorySession = next;
-  epoch += 1;
+  hydrated = true;
+  version += 1;
 
   if (next.status === "ready" && next.source && next.analysis) {
     writeSession({
@@ -129,19 +130,13 @@ function subscribe(listener: () => void) {
 }
 
 function getSnapshot() {
-  const next = computeSnapshot();
-  if (
-    cachedSnapshot.epoch === epoch &&
-    cachedSnapshot.status === next.status &&
-    cachedSnapshot.source === next.source &&
-    cachedSnapshot.analysis === next.analysis &&
-    cachedSnapshot.error === next.error &&
-    cachedSnapshot.restored === next.restored
-  ) {
+  hydrateFromStorage();
+  if (cachedVersion === version) {
     return cachedSnapshot;
   }
 
-  cachedSnapshot = { ...next, epoch };
+  cachedSnapshot = memorySession ?? idleSnapshot;
+  cachedVersion = version;
   return cachedSnapshot;
 }
 
@@ -192,7 +187,7 @@ export function useAnalyzeSession() {
   const reset = useCallback(() => {
     clearSession();
     clearChatMessages();
-    emit({ ...idleSnapshot });
+    emit(idleSnapshot);
     window.scrollTo({ top: 0, behavior: "smooth" });
   }, []);
 

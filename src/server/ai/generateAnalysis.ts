@@ -1,11 +1,21 @@
 import "server-only";
 
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+
 import { z } from "zod";
 
 import type { DashboardAnalysis } from "@/entities/analysis";
 import type { ChatTurn } from "@/entities/chat";
 import type { DataSource, ReportChunk } from "@/entities/report";
 import { NO_DATA_STUB } from "@/shared/consts/messages";
+
+import {
+  generateWithAltLlms,
+  hasAltLlmKey,
+  hasGeminiKey,
+  preferAltFirst,
+} from "./providers";
 
 const metricSchema = z.object({
   label: z.string().min(1).max(50),
@@ -202,7 +212,13 @@ async function generateWithGemini({
 
   let result = await requestModel(primaryModel);
 
+  const primaryQuota =
+    result.response.status === 429 &&
+    /quota|rate.?limit/i.test(result.body.error?.message ?? "");
+
+  // На исчерпанной free-tier квоте второй модели почти наверняка тоже нет смысла.
   if (
+    !primaryQuota &&
     [429, 503].includes(result.response.status) &&
     fallbackModel !== primaryModel
   ) {
@@ -210,11 +226,16 @@ async function generateWithGemini({
   }
 
   if (!result.response.ok) {
-    throw new Error(
-      `Gemini API: ${result.body.error?.message || `HTTP ${result.response.status}`}`,
-    );
+    const message =
+      result.body.error?.message || `HTTP ${result.response.status}`;
+    if (
+      result.response.status === 429 ||
+      /quota|rate.?limit|resource.?exhausted/i.test(message)
+    ) {
+      markGeminiQuotaCooldown(new Error(message));
+    }
+    throw new Error(`Gemini API: ${message}`);
   }
-  //name
 
   const body = result.body;
 
@@ -231,6 +252,144 @@ async function generateWithGemini({
   }
 
   return text.trim();
+}
+
+async function generateWithLLM({
+  prompt,
+  temperature,
+  maxOutputTokens,
+  responseSchema,
+}: GeminiRequest) {
+  const wantJson = Boolean(responseSchema);
+  const altPrompt = wantJson
+    ? `${prompt}\n\nВерни только валидный JSON-объект без markdown.`
+    : prompt;
+  const tryAlt = async () => {
+    if (!hasAltLlmKey()) return null;
+    return generateWithAltLlms({
+      prompt: altPrompt,
+      temperature,
+      maxOutputTokens,
+      json: wantJson,
+    });
+  };
+  const tryGemini = async () => {
+    if (!hasGeminiKey() || isGeminiQuotaCoolingDown()) return null;
+    return generateWithGemini({
+      prompt,
+      temperature,
+      maxOutputTokens,
+      responseSchema,
+    });
+  };
+
+  const order =
+    preferAltFirst() || isGeminiQuotaCoolingDown()
+      ? (["alt", "gemini"] as const)
+      : (["gemini", "alt"] as const);
+
+  let lastError: unknown;
+
+  for (const provider of order) {
+    try {
+      const text = provider === "alt" ? await tryAlt() : await tryGemini();
+      if (text) return text;
+    } catch (error) {
+      lastError = error;
+      if (provider === "gemini" && isGeminiQuotaError(error)) {
+        markGeminiQuotaCooldown(error);
+        continue;
+      }
+      console.error(
+        provider === "alt" ? "Alt LLM generation failed:" : "Gemini generation failed:",
+        error,
+      );
+    }
+  }
+
+  if (lastError) throw lastError;
+  return null;
+}
+
+export function isGeminiQuotaError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  return /429|quota|rate.?limit|resource.?exhausted/i.test(message);
+}
+
+const COOLDOWN_FILE = join(process.cwd(), ".next", "cache", "gemini-quota-cooldown");
+let geminiQuietUntil = 0;
+let warnedCooldown = false;
+
+function readPersistedCooldown() {
+  try {
+    if (!existsSync(COOLDOWN_FILE)) return 0;
+    const value = Number(readFileSync(COOLDOWN_FILE, "utf8").trim());
+    return Number.isFinite(value) ? value : 0;
+  } catch {
+    return 0;
+  }
+}
+
+function persistCooldown(until: number) {
+  try {
+    mkdirSync(join(process.cwd(), ".next", "cache"), { recursive: true });
+    writeFileSync(COOLDOWN_FILE, String(until), "utf8");
+  } catch {
+    // ignore — in-memory cooldown still works
+  }
+}
+
+function ensureCooldownLoaded() {
+  if (geminiQuietUntil > 0) return;
+  geminiQuietUntil = readPersistedCooldown();
+}
+
+function parseRetryDelayMs(message: string) {
+  const seconds = message.match(/retry in\s+(\d+(?:\.\d+)?)\s*s/i);
+  if (seconds) {
+    return Math.ceil(Number(seconds[1]) * 1000) + 1_000;
+  }
+  return null;
+}
+
+/**
+ * После 429 не долбим Gemini на каждый чат.
+ * Важно: для free_tier Google часто пишет "retry in 8s", но дневной лимит
+ * так быстро не восстанавливается — короткую паузу игнорируем.
+ */
+export function markGeminiQuotaCooldown(error?: unknown) {
+  ensureCooldownLoaded();
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  const parsed = parseRetryDelayMs(message);
+  const isDaily =
+    /free_tier|per\s*day|\brpd\b|daily|quota exceeded for metric|exceeded your current quota/i.test(
+      message,
+    );
+  const delay = isDaily
+    ? 30 * 60_000
+    : (parsed ?? 60_000);
+  const nextUntil = Math.max(geminiQuietUntil, Date.now() + delay);
+  const wasQuiet = Date.now() < geminiQuietUntil;
+  geminiQuietUntil = nextUntil;
+  persistCooldown(nextUntil);
+
+  if (!wasQuiet && !warnedCooldown) {
+    warnedCooldown = true;
+    console.warn(
+      hasAltLlmKey()
+        ? `Gemini quota exceeded — switching to OpenAI/OpenRouter/Groq for ~${Math.round(delay / 60_000)} min.`
+        : `Gemini quota exceeded — local answers for ~${Math.round(delay / 60_000)} min. Set OPENROUTER_API_KEY (or OPENAI_API_KEY) for a paid/stable AI fallback.`,
+    );
+  }
+}
+
+export function isGeminiQuotaCoolingDown() {
+  ensureCooldownLoaded();
+  if (Date.now() >= geminiQuietUntil) {
+    warnedCooldown = false;
+    return false;
+  }
+  return true;
 }
 
 function sourceContext(source: DataSource, chunks?: ReportChunk[]) {
@@ -256,7 +415,7 @@ function sourceContext(source: DataSource, chunks?: ReportChunk[]) {
 export async function generateAIAnalysis(
   source: DataSource,
 ): Promise<DashboardAnalysis | null> {
-  const content = await generateWithGemini({
+  const content = await generateWithLLM({
     temperature: 0.2,
     maxOutputTokens: 4_096,
     responseSchema: analysisJsonSchema,
@@ -347,7 +506,7 @@ export async function askAI(
   evidence: ReportChunk[] = [],
 ) {
   const salesMode = isSalesDataset(source);
-  const content = await generateWithGemini({
+  const content = await generateWithLLM({
     temperature: 0.15,
     maxOutputTokens: salesMode ? 1_600 : 500,
     prompt: [

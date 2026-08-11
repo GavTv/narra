@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import { answerDeterministically } from "@/entities/report";
-import { marketingFixture, salesFixture } from "@/test/fixtures";
+import {
+  marketingFixture,
+  multiMonthSalesFixture,
+  salesFixture,
+} from "@/test/fixtures";
 
 describe("answerDeterministically", () => {
   it("calculates an exact sum for a matching numeric column", () => {
@@ -88,6 +92,22 @@ describe("answerDeterministically", () => {
 
     expect(result?.answer).toMatch(/01\.07\.2026|2026-07-01/);
     expect(result?.answer).toContain("19");
+  });
+
+  it("finds the most and least profitable months by revenue", () => {
+    const best = answerDeterministically(
+      multiMonthSalesFixture,
+      "какой месяц самый прибыльный был",
+    );
+    expect(best?.answer).toMatch(/июль 2026/i);
+    expect(best?.answer).toContain("190");
+
+    const worst = answerDeterministically(
+      multiMonthSalesFixture,
+      "а какой месяц самый не прибыльный был",
+    );
+    expect(worst?.answer).toMatch(/август 2026/i);
+    expect(worst?.answer).toContain("30");
   });
 
   it("does not guess an ambiguous numeric column", () => {

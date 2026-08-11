@@ -17,7 +17,7 @@
 
 ## Стек
 
-Next.js, TypeScript, Tailwind CSS, Motion, Recharts, Gemini API, LangChain.js, LangGraph.js, Papa Parse, read-excel-file, Zod, Vitest.
+Next.js, TypeScript, Tailwind CSS, Motion, Recharts, Gemini API, OpenRouter, Groq, LangChain.js, LangGraph.js, Papa Parse, read-excel-file, Zod, Vitest.
 
 ## Запуск
 
@@ -30,12 +30,19 @@ npm run dev
 В `.env.local`:
 
 ```env
-GEMINI_API_KEY=your_key
+GEMINI_API_KEY=your_gemini_key
 GEMINI_MODEL=gemini-flash-latest
 GEMINI_FALLBACK_MODEL=gemini-2.5-flash-lite
+
+# Рекомендуется, если Gemini упёрся в квоту
+OPENROUTER_API_KEY=your_openrouter_key
+OPENROUTER_MODEL=openai/gpt-4o
+AI_PROVIDER=openrouter
 ```
 
-Откройте [http://localhost:3000](http://localhost:3000). Без ключа можно использовать кнопку «Демо-отчёт».
+Ключ OpenRouter: [openrouter.ai/keys](https://openrouter.ai/keys).  
+Важно: подписка **ChatGPT Plus не равна API-ключу**; через OpenRouter можно взять `openai/gpt-4o` отдельно.  
+Опционально: `OPENAI_API_KEY` с [platform.openai.com](https://platform.openai.com/api-keys) или `GROQ_API_KEY`.
 
 Проверки:
 
@@ -84,7 +91,7 @@ src/
 
 1. Залейте репозиторий на GitHub.
 2. Import в [Vercel](https://vercel.com/new).
-3. Environment Variables: `GEMINI_API_KEY` (опционально `GEMINI_MODEL`, `GEMINI_FALLBACK_MODEL`).
+3. Environment Variables: `GEMINI_API_KEY` и желательно `OPENROUTER_API_KEY` (опционально `GROQ_API_KEY`, `AI_PROVIDER`, модели).
 4. Deploy. Root = корень репо, framework = Next.js.
 
 ## Как использовался AI

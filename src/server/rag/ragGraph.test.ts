@@ -11,6 +11,9 @@ describe("reportRagGraph", () => {
 
   it("routes deterministic calculations without a model", async () => {
     vi.stubEnv("GEMINI_API_KEY", "");
+    vi.stubEnv("OPENROUTER_API_KEY", "");
+    vi.stubEnv("OPENAI_API_KEY", "");
+    vi.stubEnv("GROQ_API_KEY", "");
 
     const result = await invokeReportRag({
       source: marketingFixture,
@@ -25,6 +28,9 @@ describe("reportRagGraph", () => {
 
   it("keeps casual conversation when the model is unavailable", async () => {
     vi.stubEnv("GEMINI_API_KEY", "");
+    vi.stubEnv("OPENROUTER_API_KEY", "");
+    vi.stubEnv("OPENAI_API_KEY", "");
+    vi.stubEnv("GROQ_API_KEY", "");
 
     const result = await invokeReportRag({
       source: marketingFixture,

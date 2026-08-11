@@ -47,8 +47,16 @@ function operationFromQuestion(question: string): Operation | null {
   const normalized = question.toLowerCase();
 
   if (/средн|average|mean/.test(normalized)) return "average";
+  // «неприбыльный / убыточный» раньше «прибыльный»
   if (
-    /максим|наибольш|сам[а-яё]*\s+(?:больш|высок)|пик|пиков|maximum|max\b|peak/.test(
+    /не\s*прибыльн|наименее\s+прибыльн|убыточн|худш|сам[а-яё]*\s+не\s*прибыльн/.test(
+      normalized,
+    )
+  ) {
+    return "min";
+  }
+  if (
+    /максим|наибольш|сам[а-яё]*\s+(?:больш|высок|прибыльн|доходн|выгодн)|пик|пиков|прибыльн|доходн|выгодн|maximum|max\b|peak/.test(
       normalized,
     )
   ) {
@@ -69,9 +77,16 @@ function isStructureQuestion(question: string) {
   );
 }
 
+function isMonthQuestion(question: string) {
+  return /месяц|помесяч|по\s+месяц/i.test(question);
+}
+
 function isTemporalQuestion(question: string) {
-  return /когда|в\s+какой\s+день|по\s+дням|по\s+датам|за\s+какой\s+день|в\s+какую\s+дат/i.test(
-    question,
+  return (
+    isMonthQuestion(question) ||
+    /когда|в\s+какой\s+день|по\s+дням|по\s+датам|за\s+какой\s+день|в\s+какую\s+дат|квартал/i.test(
+      question,
+    )
   );
 }
 
@@ -83,6 +98,54 @@ function dateLikeColumn(categories: CategoryColumn[]) {
       ),
     ) ?? null
   );
+}
+
+const MONTHS_RU = [
+  "январь",
+  "февраль",
+  "март",
+  "апрель",
+  "май",
+  "июнь",
+  "июль",
+  "август",
+  "сентябрь",
+  "октябрь",
+  "ноябрь",
+  "декабрь",
+] as const;
+
+function monthLabelFromCell(value: unknown): string | null {
+  const raw = String(value ?? "").trim();
+  if (!raw) return null;
+
+  const iso = raw.match(/^(\d{4})-(\d{2})(?:-\d{2})?/);
+  if (iso) {
+    const month = Number(iso[2]);
+    if (month >= 1 && month <= 12) {
+      return `${MONTHS_RU[month - 1]} ${iso[1]}`;
+    }
+  }
+
+  const ru = raw.match(/^(\d{2})\.(\d{2})\.(\d{4})$/);
+  if (ru) {
+    const month = Number(ru[2]);
+    if (month >= 1 && month <= 12) {
+      return `${MONTHS_RU[month - 1]} ${ru[3]}`;
+    }
+  }
+
+  const named = raw.match(
+    /^(январ|феврал|март|апрел|ма[йя]|июн|июл|август|сентябр|октябр|ноябр|декабр)[а-яё]*\s+(\d{4})$/i,
+  );
+  if (named) {
+    const index = MONTHS_RU.findIndex((month) =>
+      month.startsWith(named[1].toLowerCase().slice(0, 3)),
+    );
+    if (index >= 0) return `${MONTHS_RU[index]} ${named[2]}`;
+  }
+
+  return null;
 }
 
 function answerStructureQuestion(source: DataSource): ChatAnswer {
@@ -118,7 +181,20 @@ function headerAliases(header: string) {
     aliases.push("продаж", "продажа", "продаж", "заказ", "заказы", "sales");
   }
   if (/выруч|revenue|sales/i.test(normalized)) {
-    aliases.push("выручка", "выруч", "продаж", "продажа", "revenue", "sales");
+    aliases.push(
+      "выручка",
+      "выруч",
+      "продаж",
+      "продажа",
+      "прибыль",
+      "прибыльн",
+      "доход",
+      "revenue",
+      "sales",
+    );
+  }
+  if (/прибыл|доход|profit/i.test(normalized)) {
+    aliases.push("выручка", "прибыль", "доход", "profit", "revenue");
   }
   if (/расход|cost|spend/i.test(normalized)) {
     aliases.push("расход", "расходы", "cost");
@@ -212,15 +288,19 @@ function calculateGrouped(
   numeric: NumericColumn,
   category: CategoryColumn,
   operation: Operation,
+  options?: { bucketByMonth?: boolean },
 ): ChatAnswer | null {
   const groups = new Map<
     string,
     { values: number[]; rowIndexes: number[] }
   >();
+  const bucketByMonth = Boolean(options?.bucketByMonth);
 
   for (const item of numeric.values) {
     const raw = source.rows[item.rowIndex]?.[category.index];
-    const label = formatCell(raw).trim();
+    const label = (
+      bucketByMonth ? monthLabelFromCell(raw) : formatCell(raw)
+    )?.trim();
     if (!label || label === "—") continue;
     const group = groups.get(label) ?? { values: [], rowIndexes: [] };
     group.values.push(item.value);
@@ -247,14 +327,17 @@ function calculateGrouped(
         ? Math.max(...aggregated.map((item) => item.value))
         : Math.min(...aggregated.map((item) => item.value));
     const matches = aggregated.filter((item) => item.value === target);
-    const isDateCategory = /дата|date|день|day/i.test(category.name);
+    const isDateCategory =
+      bucketByMonth || /дата|date|день|day|месяц|month/i.test(category.name);
     const direction = operation === "max" ? "Наибольшее" : "Наименьшее";
     const answer =
       matches.length === 1
-        ? isDateCategory
-          ? `${operation === "max" ? "Пик" : "Минимум"} «${numeric.name}» — ${formatNumber(matches[0].value)} (${category.name}: ${matches[0].label}).`
-          : `${direction} суммарное значение «${numeric.name}» у категории «${matches[0].label}» — ${formatNumber(matches[0].value)}.`
-        : `${direction} суммарное значение «${numeric.name}» одинаково у нескольких категорий:\n${matches
+        ? bucketByMonth
+          ? `${operation === "max" ? "Самый прибыльный" : "Самый неприбыльный"} месяц по «${numeric.name}» — ${matches[0].label} (${formatNumber(matches[0].value)}).`
+          : isDateCategory
+            ? `${operation === "max" ? "Пик" : "Минимум"} «${numeric.name}» — ${formatNumber(matches[0].value)} (${category.name}: ${matches[0].label}).`
+            : `${direction} суммарное значение «${numeric.name}» у категории «${matches[0].label}» — ${formatNumber(matches[0].value)}.`
+        : `${direction} суммарное значение «${numeric.name}» одинаково у нескольких ${bucketByMonth ? "месяцев" : "категорий"}:\n${matches
             .map((item) => `• «${item.label}» — ${formatNumber(item.value)}.`)
             .join("\n")}`;
 
@@ -273,7 +356,7 @@ function calculateGrouped(
   const sorted = [...aggregated].sort((a, b) => b.value - a.value).slice(0, 8);
 
   return {
-    answer: `${label} «${numeric.name}» по «${category.name}»:\n${sorted
+    answer: `${label} «${numeric.name}» ${bucketByMonth ? "по месяцам" : `по «${category.name}»`}:\n${sorted
       .map((item) => `• «${item.label}» — ${formatNumber(item.value)}.`)
       .join("\n")}`,
     citations: rowCitations(sorted.flatMap((item) => item.rowIndexes)),
@@ -309,15 +392,28 @@ export function answerDeterministically(
   const numeric = numericColumns(source);
   let selectedNumeric = selectColumn(numeric, question);
 
-  // «продажи / выручка / заказы» без точного имени колонки — берём лучший числовой proxy.
-  if (!selectedNumeric && /продаж|выруч|заказ|sales|revenue|orders?/i.test(question)) {
+  // «продажи / выручка / прибыль / заказы» без точного имени колонки.
+  if (
+    !selectedNumeric &&
+    /продаж|выруч|заказ|прибыл|доход|sales|revenue|orders?|profit/i.test(
+      question,
+    )
+  ) {
+    const prefersRevenue =
+      /прибыл|доход|выруч|revenue|profit/i.test(question) &&
+      !/заказ|order/i.test(question);
     selectedNumeric =
       selectColumn(
         numeric.filter((column) =>
-          /заказ|order|продаж|sales|выруч|revenue/i.test(column.name),
+          /заказ|order|продаж|sales|выруч|revenue|прибыл|доход/i.test(
+            column.name,
+          ),
         ),
         question,
       ) ??
+      (prefersRevenue
+        ? numeric.find((column) => /выруч|revenue|прибыл|доход/i.test(column.name))
+        : undefined) ??
       numeric.find((column) =>
         /заказ|order|продаж|sales/i.test(column.name),
       ) ??
@@ -328,6 +424,7 @@ export function answerDeterministically(
   if (!selectedNumeric) return null;
 
   const categories = categoryColumns(source, numeric);
+  const monthQuestion = isMonthQuestion(question);
   const temporalCategory = isTemporalQuestion(question)
     ? dateLikeColumn(categories)
     : null;
@@ -335,17 +432,24 @@ export function answerDeterministically(
     temporalCategory ?? selectColumn(categories, question);
   const asksForGrouping =
     Boolean(temporalCategory) ||
+    monthQuestion ||
     /\bпо\b|како[а-яё]*\s+(?:категор|товар|канал|день|месяц|дат)/i.test(
       question,
     );
 
   if (selectedCategory && asksForGrouping) {
-    return calculateGrouped(
+    const grouped = calculateGrouped(
       source,
       selectedNumeric,
       selectedCategory,
       operation,
+      {
+        bucketByMonth:
+          monthQuestion &&
+          /дата|date|день|day|месяц|month/i.test(selectedCategory.name),
+      },
     );
+    if (grouped) return grouped;
   }
 
   const values = selectedNumeric.values;

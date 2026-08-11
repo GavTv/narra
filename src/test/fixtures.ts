@@ -24,6 +24,33 @@ export const salesFixture: DataSource = {
   },
 };
 
+/** Несколько месяцев — для вопросов про прибыльный/неприбыльный месяц. */
+export const multiMonthSalesFixture: DataSource = {
+  name: "sales-months.csv",
+  kind: "csv",
+  content: [
+    "Дата,Товар,Выручка,Заказы",
+    "2026-06-10,Куртка Urban,40000,4",
+    "2026-06-20,Кепка Street,20000,2",
+    "2026-07-01,Куртка Urban,100000,10",
+    "2026-07-15,Кепка Street,90000,9",
+    "2026-08-01,Рюкзак Trek,30000,3",
+  ].join("\n"),
+  headers: ["Дата", "Товар", "Выручка", "Заказы"],
+  rows: [
+    ["2026-06-10", "Куртка Urban", 40_000, 4],
+    ["2026-06-20", "Кепка Street", 20_000, 2],
+    ["2026-07-01", "Куртка Urban", 100_000, 10],
+    ["2026-07-15", "Кепка Street", 90_000, 9],
+    ["2026-08-01", "Рюкзак Trek", 30_000, 3],
+  ],
+  stats: {
+    rows: 5,
+    columns: 4,
+    characters: 220,
+  },
+};
+
 export const marketingFixture: DataSource = {
   name: "marketing.csv",
   kind: "csv",

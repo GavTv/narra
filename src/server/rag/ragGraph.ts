@@ -9,8 +9,19 @@ import {
   askAI,
   chatInstructions,
   conversationContext,
+  isGeminiQuotaCoolingDown,
+  isGeminiQuotaError,
   isSalesDataset,
+  markGeminiQuotaCooldown,
 } from "@/server/ai";
+import {
+  createAltChatModels,
+  createCompatibleChatModel,
+  altProvidersInOrder,
+  hasAltLlmKey,
+  preferAltFirst,
+} from "@/server/ai/providers";
+import type { BaseChatModel } from "@langchain/core/language_models/chat_models";
 import type { ChatAnswer, ChatCitation, ChatTurn } from "@/entities/chat";
 import {
   answerDeterministically,
@@ -82,35 +93,65 @@ function normalizeModelName(value: string) {
   return value.replace(/^models\//, "");
 }
 
-function createGroundedModel() {
+function withGeminiSchema(
+  model: ChatGoogleGenerativeAI,
+) {
+  return model.withStructuredOutput(generatedAnswerSchema, {
+    name: "grounded_report_answer",
+    method: "jsonSchema",
+  });
+}
+
+function withAltSchema(model: BaseChatModel) {
+  return model.withStructuredOutput(generatedAnswerSchema, {
+    name: "grounded_report_answer",
+  });
+}
+
+function createGeminiModels() {
   const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) return null;
+  if (!apiKey || isGeminiQuotaCoolingDown()) return [];
 
-  const primary = new ChatGoogleGenerativeAI({
-    apiKey,
-    model: normalizeModelName(
-      process.env.GEMINI_MODEL || "gemini-flash-latest",
-    ),
+  const primary = withGeminiSchema(
+    new ChatGoogleGenerativeAI({
+      apiKey,
+      model: normalizeModelName(
+        process.env.GEMINI_MODEL || "gemini-flash-latest",
+      ),
+      temperature: 0.15,
+      maxOutputTokens: 1_600,
+    }),
+  );
+
+  const fallback = withGeminiSchema(
+    new ChatGoogleGenerativeAI({
+      apiKey,
+      model: normalizeModelName(
+        process.env.GEMINI_FALLBACK_MODEL || "gemini-2.5-flash-lite",
+      ),
+      temperature: 0.15,
+      maxOutputTokens: 1_600,
+    }),
+  );
+
+  return [primary, fallback];
+}
+
+function createGroundedModel() {
+  const alt = createAltChatModels({
     temperature: 0.15,
-    maxOutputTokens: 1_600,
-  }).withStructuredOutput(generatedAnswerSchema, {
-    name: "grounded_report_answer",
-    method: "jsonSchema",
-  });
+    maxTokens: 1_600,
+  }).map(withAltSchema);
+  const gemini = createGeminiModels();
 
-  const fallback = new ChatGoogleGenerativeAI({
-    apiKey,
-    model: normalizeModelName(
-      process.env.GEMINI_FALLBACK_MODEL || "gemini-2.5-flash-lite",
-    ),
-    temperature: 0.15,
-    maxOutputTokens: 1_600,
-  }).withStructuredOutput(generatedAnswerSchema, {
-    name: "grounded_report_answer",
-    method: "jsonSchema",
-  });
+  const models =
+    preferAltFirst() || isGeminiQuotaCoolingDown()
+      ? [...alt, ...gemini]
+      : [...gemini, ...alt];
 
-  return primary.withFallbacks({ fallbacks: [fallback] });
+  if (!models.length) return null;
+  if (models.length === 1) return models[0];
+  return models[0].withFallbacks({ fallbacks: models.slice(1) });
 }
 
 function routeQuestion(state: RagStateValue) {
@@ -142,13 +183,35 @@ function evidenceText(chunks: ReportChunk[]) {
     .join("\n\n");
 }
 
+function isCasualQuestion(question: string) {
+  return /^(?:привет|здравствуй|добрый\s+(?:день|вечер|утро)|хай|спасибо|благодарю)|что ты умеешь|как дела/i.test(
+    question.trim(),
+  );
+}
+
+function localAnswerResult(
+  source: DataSource,
+  question: string,
+  retrieved: ReportChunk[],
+) {
+  const answer = answerLocally(source, question);
+  const citationIds =
+    isCasualQuestion(question) || answer.trim() === NO_DATA_STUB
+      ? []
+      : retrieved.slice(0, 4).map((chunk) => chunk.id);
+
+  return { answer, citationIds };
+}
+
 async function generateAnswer(state: RagStateValue) {
-  const model = createGroundedModel();
   const availableChunks = state.retrieved;
+  const model = createGroundedModel();
+
+  if (!model) {
+    return localAnswerResult(state.source, state.question, availableChunks);
+  }
 
   try {
-    if (!model) throw new Error("Gemini API key is not configured");
-
     const chain = groundedPrompt.pipe(model);
     const generated = await chain.invoke({
       domainInstructions: chatInstructions(isSalesDataset(state.source)),
@@ -165,6 +228,41 @@ async function generateAnswer(state: RagStateValue) {
       citationIds: generated.citations,
     };
   } catch (error) {
+    if (isGeminiQuotaError(error)) {
+      markGeminiQuotaCooldown(error);
+      if (hasAltLlmKey()) {
+        try {
+          for (const provider of altProvidersInOrder()) {
+            const altOnly = createCompatibleChatModel(provider, {
+              temperature: 0.15,
+              maxTokens: 1_600,
+            });
+            if (!altOnly) continue;
+
+            const chain = groundedPrompt.pipe(withAltSchema(altOnly));
+            const generated = await chain.invoke({
+              domainInstructions: chatInstructions(
+                isSalesDataset(state.source),
+              ),
+              schema: state.index.schema,
+              evidence: evidenceText(state.retrieved),
+              availableCitationIds:
+                availableChunks.map((chunk) => chunk.id).join(", ") || "none",
+              history: conversationContext(state.history),
+              question: state.question,
+            });
+            return {
+              answer: generated.answer,
+              citationIds: generated.citations,
+            };
+          }
+        } catch (altError) {
+          console.error("Alt LLM grounded fallback failed:", altError);
+        }
+      }
+      return localAnswerResult(state.source, state.question, availableChunks);
+    }
+
     console.error("LangGraph generation failed, using direct fallback:", error);
 
     try {
@@ -182,20 +280,15 @@ async function generateAnswer(state: RagStateValue) {
         };
       }
     } catch (fallbackError) {
-      console.error("Direct Gemini fallback failed:", fallbackError);
+      if (isGeminiQuotaError(fallbackError)) {
+        markGeminiQuotaCooldown(fallbackError);
+      } else {
+        console.error("Direct LLM fallback failed:", fallbackError);
+      }
     }
 
-    return {
-      answer: answerLocally(state.source, state.question),
-      citationIds: [],
-    };
+    return localAnswerResult(state.source, state.question, availableChunks);
   }
-}
-
-function isCasualQuestion(question: string) {
-  return /^(?:привет|здравствуй|добрый\s+(?:день|вечер|утро)|хай|спасибо|благодарю)|что ты умеешь|как дела/i.test(
-    question.trim(),
-  );
 }
 
 function validateCitations(state: RagStateValue) {

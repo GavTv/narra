@@ -59,6 +59,10 @@ function ChartTooltip({
   );
 }
 
+function compactTick(value: number) {
+  return formatNumber(value, true);
+}
+
 function ChartVisual({ chart }: { chart: ChartSpec }) {
   const hasSecondary = chart.data.some((item) => item.secondary !== undefined);
 
@@ -67,7 +71,7 @@ function ChartVisual({ chart }: { chart: ChartSpec }) {
 
     return (
       <div className="grid h-full grid-cols-[minmax(0,1fr)_112px] items-center gap-1">
-        <ResponsiveContainer width="100%" height="100%">
+        <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
           <PieChart>
             <Pie
               data={data}
@@ -79,6 +83,7 @@ function ChartVisual({ chart }: { chart: ChartSpec }) {
               outerRadius="83%"
               paddingAngle={3}
               stroke="transparent"
+              isAnimationActive={false}
             >
               {data.map((item, index) => (
                 <Cell key={`${item.label}-${index}`} fill={colors[index % colors.length]} />
@@ -111,7 +116,7 @@ function ChartVisual({ chart }: { chart: ChartSpec }) {
 
   if (chart.type === "line") {
     return (
-      <ResponsiveContainer width="100%" height="100%">
+      <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
         <LineChart data={chart.data} margin={{ top: 10, right: 8, left: -24, bottom: 0 }}>
           <CartesianGrid vertical={false} stroke="#e5e7e1" strokeDasharray="3 5" />
           <XAxis
@@ -126,7 +131,7 @@ function ChartVisual({ chart }: { chart: ChartSpec }) {
             axisLine={false}
             tickLine={false}
             tick={{ fill: "#a0a6a1", fontSize: 10 }}
-            tickFormatter={(value: number) => formatNumber(value, true)}
+            tickFormatter={compactTick}
           />
           <Tooltip cursor={{ stroke: "#9da49e", strokeDasharray: "3 3" }} content={<ChartTooltip />} />
           <Line
@@ -135,6 +140,7 @@ function ChartVisual({ chart }: { chart: ChartSpec }) {
             name={chart.valueLabel}
             stroke="#17201c"
             strokeWidth={2.5}
+            isAnimationActive={false}
             dot={{ r: 3, fill: "#f8f8f4", stroke: "#17201c", strokeWidth: 2 }}
             activeDot={{ r: 5, fill: "#d7ff64", stroke: "#17201c", strokeWidth: 2 }}
           />
@@ -146,6 +152,7 @@ function ChartVisual({ chart }: { chart: ChartSpec }) {
               stroke="#78cda4"
               strokeWidth={2.5}
               strokeDasharray="5 4"
+              isAnimationActive={false}
               dot={false}
               activeDot={{ r: 4, fill: "#78cda4", stroke: "#fff", strokeWidth: 2 }}
             />
@@ -156,7 +163,7 @@ function ChartVisual({ chart }: { chart: ChartSpec }) {
   }
 
   return (
-    <ResponsiveContainer width="100%" height="100%">
+    <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
       <BarChart data={chart.data} margin={{ top: 10, right: 8, left: -24, bottom: 0 }}>
         <CartesianGrid vertical={false} stroke="#e5e7e1" strokeDasharray="3 5" />
         <XAxis
@@ -171,7 +178,7 @@ function ChartVisual({ chart }: { chart: ChartSpec }) {
           axisLine={false}
           tickLine={false}
           tick={{ fill: "#a0a6a1", fontSize: 10 }}
-          tickFormatter={(value: number) => formatNumber(value, true)}
+          tickFormatter={compactTick}
         />
         <Tooltip cursor={{ fill: "#eef0e9" }} content={<ChartTooltip />} />
         <Bar
@@ -180,6 +187,7 @@ function ChartVisual({ chart }: { chart: ChartSpec }) {
           fill="#17201c"
           radius={[7, 7, 2, 2]}
           maxBarSize={32}
+          isAnimationActive={false}
         />
         {hasSecondary && (
           <Bar
@@ -188,6 +196,7 @@ function ChartVisual({ chart }: { chart: ChartSpec }) {
             fill="#a9f7d1"
             radius={[7, 7, 2, 2]}
             maxBarSize={32}
+            isAnimationActive={false}
           />
         )}
       </BarChart>
