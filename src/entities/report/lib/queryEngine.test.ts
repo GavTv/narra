@@ -203,6 +203,41 @@ describe("answerDeterministically", () => {
     expect(result?.answer).toMatch(/30/);
   });
 
+  it("finds the most popular club by row count", () => {
+    const gymFixture = {
+      name: "gym.csv",
+      kind: "csv" as const,
+      content: "x",
+      headers: [
+        "Дата покупки",
+        "Клиент",
+        "Абонемент",
+        "Клуб",
+        "Тренер",
+        "Стоимость",
+        "Посещений за месяц",
+        "Продление",
+      ],
+      rows: [
+        ["2026-01-01", "1", "Год", "Central Fit", "Юлия", 1200, 1, "Нет"],
+        ["2026-01-02", "2", "Месяц", "Central Fit", "Юлия", 1200, 2, "Да"],
+        ["2026-01-03", "3", "Год", "North Gym", "Иван", 900, 1, "Нет"],
+        ["2026-01-04", "4", "Месяц", "Central Fit", "Юлия", 1200, 3, "Да"],
+        ["2026-01-05", "5", "Год", "South Club", "Оля", 800, 1, "Нет"],
+      ],
+      stats: { rows: 5, columns: 8, characters: 1 },
+    };
+
+    const result = answerDeterministically(
+      gymFixture,
+      "Какой клуб самый популярный?",
+    );
+
+    expect(result?.answer).toContain("Central Fit");
+    expect(result?.answer).toMatch(/3/);
+    expect(result?.answer).not.toMatch(/связанный фрагмент|пустота/i);
+  });
+
   it("finds the district with the most objects", () => {
     const result = answerDeterministically(
       realtyFixture,

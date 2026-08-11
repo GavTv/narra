@@ -200,7 +200,16 @@ function localAnswerResult(
   source: DataSource,
   question: string,
   retrieved: ReportChunk[],
+  history: ChatTurn[] = [],
 ) {
+  const calculated = answerDeterministically(source, question, history);
+  if (calculated) {
+    return {
+      answer: calculated.answer,
+      citationIds: calculated.citations.map((citation) => citation.id),
+    };
+  }
+
   const answer = answerLocally(source, question);
   const citationIds =
     isCasualQuestion(question) || answer.trim() === NO_DATA_STUB
@@ -215,7 +224,12 @@ async function generateAnswer(state: RagStateValue) {
   const model = createGroundedModel();
 
   if (!model) {
-    return localAnswerResult(state.source, state.question, availableChunks);
+    return localAnswerResult(
+      state.source,
+      state.question,
+      availableChunks,
+      state.history,
+    );
   }
 
   try {
@@ -267,7 +281,12 @@ async function generateAnswer(state: RagStateValue) {
           console.error("Alt LLM grounded fallback failed:", altError);
         }
       }
-      return localAnswerResult(state.source, state.question, availableChunks);
+      return localAnswerResult(
+        state.source,
+        state.question,
+        availableChunks,
+        state.history,
+      );
     }
 
     console.error("LangGraph generation failed, using direct fallback:", error);
@@ -294,7 +313,12 @@ async function generateAnswer(state: RagStateValue) {
       }
     }
 
-    return localAnswerResult(state.source, state.question, availableChunks);
+    return localAnswerResult(
+      state.source,
+      state.question,
+      availableChunks,
+      state.history,
+    );
   }
 }
 

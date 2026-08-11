@@ -1,7 +1,11 @@
 import "server-only";
 
 import type { ChatAnswer } from "@/entities/chat";
-import { answerLocally, buildReportIndex } from "@/entities/report";
+import {
+  answerDeterministically,
+  answerLocally,
+  buildReportIndex,
+} from "@/entities/report";
 import { invokeReportRag } from "@/server/rag";
 import { fail, ok, type AppResult } from "@/shared/lib/result";
 import { chatRequestSchema } from "@/shared/lib/validation";
@@ -33,6 +37,12 @@ export async function askReport(
     });
   } catch (error) {
     console.error("RAG graph failed, using local fallback:", error);
+
+    const deterministic = answerDeterministically(source, question, history);
+    if (deterministic) {
+      return ok(deterministic);
+    }
+
     return ok({
       answer: answerLocally(source, question),
       citations: [],

@@ -1035,7 +1035,10 @@ export function answerLocally(source: DataSource, question: string) {
     .sort((a, b) => b.score - a.score)[0];
 
   if (matchingLine?.score) {
-    return `В отчёте найден связанный фрагмент: «${matchingLine.line.slice(0, 240)}». Более точного вывода без дополнительных данных сделать нельзя.`;
+    if (!source.headers.length) {
+      return `В отчёте найден связанный фрагмент: «${matchingLine.line.slice(0, 240)}». Более точного вывода без дополнительных данных сделать нельзя.`;
+    }
+    return `Не удалось однозначно посчитать ответ. Уточните показатель или категорию (колонки: ${source.headers.slice(0, 6).join(", ")}).`;
   }
 
   return NO_DATA_STUB;

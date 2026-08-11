@@ -487,7 +487,7 @@ function answerWhereMostByCategory(
   question: string,
 ): ChatAnswer | null {
   if (
-    !/больше\s+всего|чаще\s+всего|наибольш|в\s+каком|какой\s+район|какая\s+категор/i.test(
+    !/популярн|чаще\s+всего|больше\s+всего|самый\s+част|наибольшее\s+(?:число|количеств)|в\s+каком[\s\S]{0,48}(?:больше|чаще|наибольш)|(?:какой|какая)\s+(?:район|категор)[\s\S]{0,24}(?:больше|чаще|наибольш)/i.test(
       question,
     )
   ) {
@@ -502,7 +502,7 @@ function answerWhereMostByCategory(
   const groupColumn =
     selectColumn(categories, question) ??
     categories.find((column) =>
-      /район|город|регион|канал|категор|сегмент|источник|source|марка|бренд/i.test(
+      /район|город|регион|канал|категор|сегмент|источник|source|марка|бренд|клуб|филиал|локац|площадк|тренер|gym|club/i.test(
         column.name,
       ),
     ) ??
@@ -517,7 +517,9 @@ function answerWhereMostByCategory(
   const countDistinctTypes =
     Boolean(typeColumn) &&
     /тип/i.test(question) &&
-    !/объект|запис|строк|квартир|дом|авто|кандидат|товар/i.test(question);
+    !/объект|запис|строк|квартир|дом|авто|кандидат|товар|клуб|посещен/i.test(
+      question,
+    );
 
   const groups = new Map<
     string,
@@ -557,14 +559,16 @@ function answerWhereMostByCategory(
         ? "типа"
         : "типов"
     : winners[0].value === 1
-      ? "объект"
+      ? "запись"
       : winners[0].value < 5
-        ? "объекта"
-        : "объектов";
+        ? "записи"
+        : "записей";
 
   if (winners.length === 1) {
     return {
-      answer: `В «${groupColumn.name}» лидирует «${winners[0].label}»: ${formatNumber(winners[0].value)} ${unit}.`,
+      answer: /популярн/i.test(question)
+        ? `Самый популярный «${groupColumn.name}» — «${winners[0].label}»: ${formatNumber(winners[0].value)} ${unit}.`
+        : `В «${groupColumn.name}» лидирует «${winners[0].label}»: ${formatNumber(winners[0].value)} ${unit}.`,
       citations: rowCitations(winners[0].rowIndexes),
     };
   }
