@@ -304,8 +304,6 @@ function validateCitations(state: RagStateValue) {
       state.answer,
     );
 
-  // If the model answered from evidence but forgot/mistyped ids,
-  // keep the answer and attach the retrieved evidence instead of wiping it.
   if (
     !citations.length &&
     !isNoDataAnswer &&

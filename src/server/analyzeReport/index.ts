@@ -1,1 +1,1 @@
-export { analyzeReport, type AnalyzeReportDto } from "./analyzeReport";
+export { analyzeReport } from "./analyzeReport";

@@ -1,6 +1,6 @@
 "use client";
 
-import { BarChart3, ChartPie, LineChart as LineChartIcon, Sparkles } from "lucide-react";
+import { BarChart3, ChartPie, LineChart as LineChartIcon } from "lucide-react";
 import { motion } from "motion/react";
 import {
   Bar,
@@ -19,7 +19,7 @@ import {
 } from "recharts";
 
 import type { ChartSpec } from "@/entities/analysis";
-import { formatNumber } from "@/shared/lib/format";
+import { formatChartLabel, formatNumber } from "@/shared/lib/format";
 
 const colors = ["#17201c", "#d7ff64", "#78cda4", "#ff8b5c", "#9aa5ff", "#f3c95f"];
 
@@ -36,7 +36,7 @@ function ChartTooltip({
   return (
     <div className="min-w-32 rounded-xl border border-white/60 bg-[#17201c]/94 px-3 py-2.5 text-white shadow-xl backdrop-blur-md">
       <p className="mb-1.5 text-[10px] font-medium text-white/50">
-        {resolvedLabel}
+        {formatChartLabel(resolvedLabel, 24) || resolvedLabel}
       </p>
       {payload.map((item) => (
         <div
@@ -63,37 +63,49 @@ function compactTick(value: number) {
   return formatNumber(value, true);
 }
 
+function axisLabel(value: string) {
+  return formatChartLabel(value);
+}
+
+function withShortLabels(chart: ChartSpec) {
+  return chart.data.map((item) => ({
+    ...item,
+    label: formatChartLabel(item.label, 12) || item.label,
+  }));
+}
+
 function ChartVisual({ chart }: { chart: ChartSpec }) {
-  const hasSecondary = chart.data.some((item) => item.secondary !== undefined);
+  const data = withShortLabels(chart);
+  const hasSecondary = data.some((item) => item.secondary !== undefined);
 
   if (chart.type === "pie") {
-    const data = chart.data.filter((item) => item.value > 0);
+    const pieData = data.filter((item) => item.value > 0);
 
     return (
-      <div className="grid h-full grid-cols-[minmax(0,1fr)_112px] items-center gap-1">
+      <div className="grid h-full grid-cols-[minmax(0,1fr)_100px] items-center gap-1">
         <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
           <PieChart>
             <Pie
-              data={data}
+              data={pieData}
               dataKey="value"
               nameKey="label"
               cx="50%"
               cy="50%"
-              innerRadius="57%"
-              outerRadius="83%"
+              innerRadius="55%"
+              outerRadius="82%"
               paddingAngle={3}
               stroke="transparent"
               isAnimationActive={false}
             >
-              {data.map((item, index) => (
+              {pieData.map((item, index) => (
                 <Cell key={`${item.label}-${index}`} fill={colors[index % colors.length]} />
               ))}
             </Pie>
             <Tooltip content={<ChartTooltip />} />
           </PieChart>
         </ResponsiveContainer>
-        <div className="space-y-2.5">
-          {data.slice(0, 5).map((item, index) => (
+        <div className="space-y-2">
+          {pieData.slice(0, 4).map((item, index) => (
             <div key={`${item.label}-legend`} className="min-w-0">
               <div className="flex items-center gap-1.5">
                 <i
@@ -117,17 +129,19 @@ function ChartVisual({ chart }: { chart: ChartSpec }) {
   if (chart.type === "line") {
     return (
       <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
-        <LineChart data={chart.data} margin={{ top: 10, right: 8, left: -24, bottom: 0 }}>
+        <LineChart data={data} margin={{ top: 8, right: 4, left: 4, bottom: 0 }}>
           <CartesianGrid vertical={false} stroke="#e5e7e1" strokeDasharray="3 5" />
           <XAxis
             dataKey="label"
             axisLine={false}
             tickLine={false}
             tick={{ fill: "#8a918b", fontSize: 10 }}
-            dy={8}
-            interval="preserveStartEnd"
+            dy={6}
+            minTickGap={28}
+            tickFormatter={axisLabel}
           />
           <YAxis
+            width={40}
             axisLine={false}
             tickLine={false}
             tick={{ fill: "#a0a6a1", fontSize: 10 }}
@@ -139,10 +153,10 @@ function ChartVisual({ chart }: { chart: ChartSpec }) {
             dataKey="value"
             name={chart.valueLabel}
             stroke="#17201c"
-            strokeWidth={2.5}
+            strokeWidth={2.25}
             isAnimationActive={false}
-            dot={{ r: 3, fill: "#f8f8f4", stroke: "#17201c", strokeWidth: 2 }}
-            activeDot={{ r: 5, fill: "#d7ff64", stroke: "#17201c", strokeWidth: 2 }}
+            dot={{ r: 2.5, fill: "#f8f8f4", stroke: "#17201c", strokeWidth: 1.5 }}
+            activeDot={{ r: 4.5, fill: "#d7ff64", stroke: "#17201c", strokeWidth: 2 }}
           />
           {hasSecondary && (
             <Line
@@ -150,7 +164,7 @@ function ChartVisual({ chart }: { chart: ChartSpec }) {
               dataKey="secondary"
               name={chart.secondaryLabel ?? "Сравнение"}
               stroke="#78cda4"
-              strokeWidth={2.5}
+              strokeWidth={2}
               strokeDasharray="5 4"
               isAnimationActive={false}
               dot={false}
@@ -164,17 +178,19 @@ function ChartVisual({ chart }: { chart: ChartSpec }) {
 
   return (
     <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
-      <BarChart data={chart.data} margin={{ top: 10, right: 8, left: -24, bottom: 0 }}>
+      <BarChart data={data} margin={{ top: 8, right: 4, left: 4, bottom: 0 }}>
         <CartesianGrid vertical={false} stroke="#e5e7e1" strokeDasharray="3 5" />
         <XAxis
           dataKey="label"
           axisLine={false}
           tickLine={false}
           tick={{ fill: "#8a918b", fontSize: 10 }}
-          dy={8}
-          interval="preserveStartEnd"
+          dy={6}
+          minTickGap={28}
+          tickFormatter={axisLabel}
         />
         <YAxis
+          width={40}
           axisLine={false}
           tickLine={false}
           tick={{ fill: "#a0a6a1", fontSize: 10 }}
@@ -185,8 +201,8 @@ function ChartVisual({ chart }: { chart: ChartSpec }) {
           dataKey="value"
           name={chart.valueLabel}
           fill="#17201c"
-          radius={[7, 7, 2, 2]}
-          maxBarSize={32}
+          radius={[6, 6, 2, 2]}
+          maxBarSize={28}
           isAnimationActive={false}
         />
         {hasSecondary && (
@@ -194,8 +210,8 @@ function ChartVisual({ chart }: { chart: ChartSpec }) {
             dataKey="secondary"
             name={chart.secondaryLabel ?? "Сравнение"}
             fill="#a9f7d1"
-            radius={[7, 7, 2, 2]}
-            maxBarSize={32}
+            radius={[6, 6, 2, 2]}
+            maxBarSize={28}
             isAnimationActive={false}
           />
         )}
@@ -213,45 +229,41 @@ const typeMeta = {
 export function ChartCard({
   chart,
   index,
+  wide = false,
 }: {
   chart: ChartSpec;
   index: number;
+  wide?: boolean;
 }) {
   const { icon: Icon, label } = typeMeta[chart.type];
 
   return (
     <motion.article
-      initial={{ opacity: 0, y: 18 }}
+      initial={{ opacity: 0, y: 14 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ delay: 0.08 * index, duration: 0.45, ease: "easeOut" }}
-      className="soft-shadow flex min-h-[430px] flex-col rounded-[24px] border border-white/85 bg-[#fbfbf8]/90 p-5 backdrop-blur sm:p-6"
+      transition={{ delay: 0.06 * index, duration: 0.4, ease: "easeOut" }}
+      className={`soft-shadow flex flex-col rounded-[22px] border border-white/85 bg-[#fbfbf8]/90 p-4 backdrop-blur sm:p-5 ${
+        wide ? "min-h-[320px]" : "min-h-[300px]"
+      }`}
     >
-      <header className="flex items-start justify-between gap-4">
+      <header className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <div className="mb-2 flex items-center gap-1.5 text-[10px] font-semibold tracking-[0.14em] text-[#89908a] uppercase">
+          <div className="mb-1 flex items-center gap-1.5 text-[10px] font-semibold tracking-[0.12em] text-[#89908a] uppercase">
             <Icon className="size-3" />
             {label}
           </div>
-          <h3 className="truncate text-lg font-semibold tracking-[-0.025em] text-[#1b2520]">
+          <h3 className="truncate text-base font-semibold tracking-[-0.025em] text-[#1b2520] sm:text-lg">
             {chart.title}
           </h3>
-          <p className="mt-1 text-xs text-[#7d847e]">{chart.subtitle}</p>
         </div>
-        <span className="grid size-8 shrink-0 place-items-center rounded-full border border-[#e0e3dc] bg-white text-[#56605a]">
+        <span className="grid size-7 shrink-0 place-items-center rounded-full border border-[#e0e3dc] bg-white text-[#56605a]">
           <span className="text-[10px] font-semibold">0{index + 1}</span>
         </span>
       </header>
 
-      <div className="mt-5 h-[245px] min-h-0">
+      <div className={`mt-3 min-h-0 ${wide ? "h-[220px]" : "h-[190px]"}`}>
         <ChartVisual chart={chart} />
       </div>
-
-      <footer className="mt-auto flex items-start gap-2.5 border-t border-[#e7e8e3] pt-4">
-        <span className="mt-0.5 grid size-6 shrink-0 place-items-center rounded-full bg-[#efffd0]">
-          <Sparkles className="size-3 text-[#5f7d24]" />
-        </span>
-        <p className="text-xs leading-5 text-[#68716b]">{chart.insight}</p>
-      </footer>
     </motion.article>
   );
 }

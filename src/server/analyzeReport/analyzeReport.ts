@@ -1,7 +1,7 @@
 import "server-only";
 
 import type { DashboardAnalysis } from "@/entities/analysis";
-import { analyzeLocally } from "@/entities/report";
+import { analyzeLocally, withReportOverview } from "@/entities/report";
 import { generateAIAnalysis } from "@/server/ai";
 import { fail, ok, type AppResult } from "@/shared/lib/result";
 import { dataSourceSchema } from "@/shared/lib/validation";
@@ -35,8 +35,10 @@ export async function analyzeReport(
       console.error("AI analysis failed, using local fallback:", error);
     }
 
+    const resolved = analysis ?? analyzeLocally(parsed.data);
+
     return ok({
-      analysis: analysis ?? analyzeLocally(parsed.data),
+      analysis: withReportOverview(parsed.data, resolved),
     });
   } catch {
     return fail(500, "Не удалось запустить анализ. Попробуйте ещё раз.");

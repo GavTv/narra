@@ -33,5 +33,3 @@ export const chatRequestSchema = z.object({
     .max(10)
     .default([]),
 });
-
-export type ChatRequest = z.infer<typeof chatRequestSchema>;

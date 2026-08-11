@@ -47,7 +47,6 @@ function operationFromQuestion(question: string): Operation | null {
   const normalized = question.toLowerCase();
 
   if (/средн|average|mean/.test(normalized)) return "average";
-  // «неприбыльный / убыточный» раньше «прибыльный»
   if (
     /не\s*прибыльн|наименее\s+прибыльн|убыточн|худш|сам[а-яё]*\s+не\s*прибыльн/.test(
       normalized,
@@ -392,7 +391,6 @@ export function answerDeterministically(
   const numeric = numericColumns(source);
   let selectedNumeric = selectColumn(numeric, question);
 
-  // «продажи / выручка / прибыль / заказы» без точного имени колонки.
   if (
     !selectedNumeric &&
     /продаж|выруч|заказ|прибыл|доход|sales|revenue|orders?|profit/i.test(

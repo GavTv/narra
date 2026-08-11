@@ -2,7 +2,6 @@
 
 import {
   ArrowDownRight,
-  ArrowRight,
   ArrowUpRight,
   CheckCircle2,
   FileSpreadsheet,
@@ -83,29 +82,18 @@ export function Dashboard({ source, analysis, onReset }: DashboardProps) {
         </button>
       </motion.div>
 
-      <section className="grid gap-4 lg:grid-cols-[minmax(0,1.6fr)_minmax(290px,0.65fr)]">
+      <section className="grid gap-3 lg:grid-cols-[minmax(0,1.55fr)_minmax(260px,0.55fr)]">
         <motion.article
           initial={{ opacity: 0, y: 18 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.55, ease: "easeOut" }}
-          className="fine-grid relative min-h-[430px] overflow-hidden rounded-[28px] bg-[#17201c] p-6 text-white sm:p-9 lg:p-11"
+          className="fine-grid relative overflow-hidden rounded-[24px] bg-[#17201c] p-5 text-white sm:p-7 lg:p-8"
         >
           <div className="absolute -top-24 -right-16 size-80 rounded-full bg-[#d7ff64]/18 blur-[75px]" />
           <div className="absolute right-1/4 -bottom-28 size-72 rounded-full bg-[#7de0ae]/12 blur-[80px]" />
-          <div className="absolute top-1/2 right-8 hidden h-32 w-40 items-end gap-2 opacity-25 xl:flex">
-            {[48, 76, 58, 94, 68, 106, 84].map((height, index) => (
-              <motion.i
-                key={index}
-                initial={{ height: 0 }}
-                animate={{ height }}
-                transition={{ delay: 0.28 + index * 0.04, duration: 0.5 }}
-                className="w-2.5 rounded-full bg-[#d7ff64]"
-              />
-            ))}
-          </div>
 
-          <div className="relative flex h-full flex-col">
-            <div className="mb-16 flex items-center justify-between gap-4">
+          <div className="relative flex flex-col">
+            <div className="mb-8 flex items-center justify-between gap-4">
               <span className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/8 px-3 py-1.5 text-[10px] font-semibold tracking-[0.13em] text-white/72 uppercase backdrop-blur">
                 <Sparkles className="size-3 text-[#d7ff64]" />
                 {analysis.eyebrow}
@@ -117,17 +105,12 @@ export function Dashboard({ source, analysis, onReset }: DashboardProps) {
             </div>
 
             <div className="max-w-3xl">
-              <h1 className="text-balance text-[clamp(2rem,4.3vw,4.2rem)] leading-[1.02] font-semibold tracking-[-0.055em]">
+              <h1 className="text-balance text-[clamp(1.75rem,3.6vw,3.25rem)] leading-[1.05] font-semibold tracking-[-0.05em]">
                 {analysis.title}
               </h1>
-              <p className="mt-6 max-w-2xl text-sm leading-6 text-white/64 sm:text-base sm:leading-7">
+              <p className="mt-3 max-w-xl text-sm leading-6 text-white/60">
                 {analysis.summary}
               </p>
-            </div>
-
-            <div className="mt-auto flex items-center gap-2 pt-10 text-[10px] tracking-[0.08em] text-white/35 uppercase">
-              <span className="h-px w-10 bg-white/20" />
-              Основано на {source.stats.rows || 1} фрагментах данных
             </div>
           </div>
         </motion.article>
@@ -143,7 +126,7 @@ export function Dashboard({ source, analysis, onReset }: DashboardProps) {
                 initial={{ opacity: 0, x: 12 }}
                 animate={{ opacity: 1, x: 0 }}
                 transition={{ delay: 0.1 + index * 0.08, duration: 0.4 }}
-                className="soft-shadow flex min-h-32 flex-col justify-between rounded-[22px] border border-white/85 bg-[#fbfbf8]/92 p-5 backdrop-blur lg:min-h-0"
+                className="soft-shadow flex flex-col justify-between rounded-[20px] border border-white/85 bg-[#fbfbf8]/92 p-4 backdrop-blur"
               >
                 <div className="flex items-start justify-between gap-3">
                   <p className="text-[10px] font-semibold tracking-[0.1em] text-[#7e867f] uppercase">
@@ -153,11 +136,11 @@ export function Dashboard({ source, analysis, onReset }: DashboardProps) {
                     <Icon className="size-3.5" />
                   </span>
                 </div>
-                <div className="mt-5">
-                  <p className="truncate text-3xl font-semibold tracking-[-0.05em] text-[#1b2520]">
+                <div className="mt-3">
+                  <p className="truncate text-2xl font-semibold tracking-[-0.05em] text-[#1b2520] sm:text-3xl">
                     {metric.value}
                   </p>
-                  <p className="mt-1.5 truncate text-[11px] text-[#838b85]">
+                  <p className="mt-1 truncate text-[11px] text-[#838b85]">
                     {metric.detail}
                   </p>
                 </div>
@@ -167,30 +150,37 @@ export function Dashboard({ source, analysis, onReset }: DashboardProps) {
         </div>
       </section>
 
-      <section className="mt-12">
-        <div className="mb-5 flex items-end justify-between gap-5">
-          <div>
-            <p className="text-[10px] font-semibold tracking-[0.14em] text-[#828a84] uppercase">
-              Картина в цифрах
-            </p>
-            <h2 className="mt-1.5 text-2xl font-semibold tracking-[-0.04em] text-[#1b2520]">
-              Что стоит увидеть
-            </h2>
-          </div>
-          <p className="hidden items-center gap-1.5 text-xs text-[#858d87] sm:flex">
-            Наведите на график
-            <ArrowRight className="size-3.5" />
+      <section className="mt-8">
+        <div className="mb-4">
+          <p className="text-[10px] font-semibold tracking-[0.14em] text-[#828a84] uppercase">
+            Графики
           </p>
+          <h2 className="mt-1 text-xl font-semibold tracking-[-0.04em] text-[#1b2520]">
+            Динамика и структура
+          </h2>
         </div>
 
-        <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
+        <div
+          className={`grid gap-3 ${
+            analysis.charts.length === 1
+              ? "grid-cols-1"
+              : analysis.charts.length === 2
+                ? "grid-cols-1 md:grid-cols-2"
+                : "grid-cols-1 md:grid-cols-2 xl:grid-cols-3"
+          }`}
+        >
           {analysis.charts.map((chart, index) => (
-            <ChartCard key={chart.id} chart={chart} index={index} />
+            <ChartCard
+              key={chart.id}
+              chart={chart}
+              index={index}
+              wide={analysis.charts.length === 1}
+            />
           ))}
         </div>
       </section>
 
-      <div className="mt-12">
+      <div className="mt-8">
         <ReportChat
           key={`${source.name}-${source.stats.characters}`}
           source={source}

@@ -239,8 +239,6 @@ export function retrieveChunks(
     .slice(0, Math.max(1, limit - Number(Boolean(schema))))
     .map((result) => result.chunk);
 
-  // Если лексический поиск ничего не нашёл (мета-вопрос и т.п.) —
-  // отдаём схему и небольшой срез строк, чтобы модель видела структуру.
   const evidence =
     ranked.length > 0
       ? ranked

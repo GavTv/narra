@@ -10,7 +10,6 @@ export type PersistedSession = {
   error: string;
 };
 
-/** Bumps when chat persistence is wiped so in-memory chat stores reload. */
 export function getChatRuntimeEpoch() {
   return chatRuntimeEpoch;
 }
@@ -45,7 +44,6 @@ export function writeSession(session: PersistedSession) {
   try {
     window.sessionStorage.setItem(SESSION_KEY, JSON.stringify(session));
   } catch {
-    // Quota / private mode — ignore.
   }
 }
 
@@ -76,7 +74,6 @@ export function writeChatMessages(sourceKey: string, messages: unknown) {
       JSON.stringify(messages),
     );
   } catch {
-    // ignore
   }
 }
 

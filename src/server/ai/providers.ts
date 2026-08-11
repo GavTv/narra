@@ -3,7 +3,7 @@ import "server-only";
 import { ChatOpenAI } from "@langchain/openai";
 import type { BaseChatModel } from "@langchain/core/language_models/chat_models";
 
-export type AltProviderId = "openai" | "openrouter" | "groq";
+type AltProviderId = "openai" | "openrouter" | "groq";
 
 type CompatibleProvider = {
   id: AltProviderId;
@@ -18,15 +18,15 @@ export function hasGeminiKey() {
   return Boolean(process.env.GEMINI_API_KEY?.trim());
 }
 
-export function hasOpenAIKey() {
+function hasOpenAIKey() {
   return Boolean(process.env.OPENAI_API_KEY?.trim());
 }
 
-export function hasGroqKey() {
+function hasGroqKey() {
   return Boolean(process.env.GROQ_API_KEY?.trim());
 }
 
-export function hasOpenRouterKey() {
+function hasOpenRouterKey() {
   return Boolean(process.env.OPENROUTER_API_KEY?.trim());
 }
 
@@ -46,8 +46,7 @@ const PROVIDERS: CompatibleProvider[] = [
     id: "openrouter",
     label: "OpenRouter",
     hasKey: hasOpenRouterKey,
-    model: () =>
-      process.env.OPENROUTER_MODEL || "openai/gpt-4o",
+    model: () => process.env.OPENROUTER_MODEL || "openai/gpt-4o",
     baseURL: "https://openrouter.ai/api/v1",
     extraHeaders: () => ({
       "HTTP-Referer":
@@ -70,7 +69,6 @@ function providerKey(id: AltProviderId) {
   return process.env.GROQ_API_KEY?.trim();
 }
 
-/** Порядок запасных LLM: AI_PROVIDER поднимает выбранный вверх. */
 export function altProvidersInOrder(): CompatibleProvider[] {
   const preferred = (process.env.AI_PROVIDER || "").toLowerCase();
   const available = PROVIDERS.filter((provider) => provider.hasKey());
@@ -87,7 +85,6 @@ export function altProvidersInOrder(): CompatibleProvider[] {
     ];
   }
 
-  // По умолчанию: OpenAI → OpenRouter → Groq
   return available;
 }
 
@@ -98,11 +95,6 @@ export function preferAltFirst() {
     provider === "openrouter" ||
     provider === "groq"
   );
-}
-
-/** @deprecated use preferAltFirst */
-export function preferGroqFirst() {
-  return preferAltFirst();
 }
 
 type CompatibleRequest = {
@@ -119,7 +111,7 @@ interface ChatCompletionResponse {
   error?: { message?: string };
 }
 
-export async function generateWithCompatible(
+async function generateWithCompatible(
   provider: CompatibleProvider,
   { prompt, temperature, maxOutputTokens, json = false }: CompatibleRequest,
 ) {
@@ -160,7 +152,6 @@ export async function generateWithCompatible(
   return text;
 }
 
-/** Перебор OpenAI / OpenRouter / Groq по приоритету. */
 export async function generateWithAltLlms(request: CompatibleRequest) {
   let lastError: unknown;
 
@@ -205,21 +196,4 @@ export function createAltChatModels(options?: {
     const model = createCompatibleChatModel(provider, options);
     return model ? [model] : [];
   });
-}
-
-/** @deprecated use generateWithAltLlms */
-export async function generateWithGroq(request: CompatibleRequest) {
-  const groq = PROVIDERS.find((provider) => provider.id === "groq");
-  if (!groq?.hasKey()) return null;
-  return generateWithCompatible(groq, request);
-}
-
-/** @deprecated use createAltChatModels */
-export function createGroqChatModel(options?: {
-  temperature?: number;
-  maxTokens?: number;
-}): BaseChatModel | null {
-  const groq = PROVIDERS.find((provider) => provider.id === "groq");
-  if (!groq) return null;
-  return createCompatibleChatModel(groq, options);
 }

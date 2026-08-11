@@ -1,6 +1,10 @@
 import type { ChartSpec, DashboardAnalysis, Metric } from "@/entities/analysis";
 import { NO_DATA_STUB } from "@/shared/consts/messages";
-import { formatNumber, toNumber } from "@/shared/lib/format";
+import {
+  formatNumber,
+  mergeChartPointsByDate,
+  toNumber,
+} from "@/shared/lib/format";
 
 import type { DataSource } from "../model/types";
 
@@ -69,12 +73,92 @@ function trendDetail(column: NumericColumn) {
   return `${prefix}${formatNumber(change)}% от первой точки`;
 }
 
+function yearsFromSource(source: DataSource) {
+  const dateIndex = source.headers.findIndex((header) =>
+    /дата|date|period|период/i.test(header),
+  );
+  if (dateIndex < 0) return [];
+
+  const years = new Set<number>();
+  for (const row of source.rows) {
+    const raw = String(row[dateIndex] ?? "").trim();
+    const iso = raw.match(/^(\d{4})[-/.]/);
+    const ru = raw.match(/^\d{2}\.\d{2}\.(\d{4})$/);
+    const year = Number(iso?.[1] ?? ru?.[1]);
+    if (Number.isFinite(year) && year >= 1990 && year <= 2100) {
+      years.add(year);
+    }
+  }
+
+  return [...years].sort((a, b) => a - b);
+}
+
+function reportTopic(source: DataSource) {
+  const headers = source.headers.join(" ").toLowerCase();
+  const name = source.name.toLowerCase();
+
+  if (/выруч|заказ|товар|продаж|sales|revenue|order|product/.test(headers + name)) {
+    return "продажам";
+  }
+  if (/лид|канал|расход|конверс|маркетинг|lead|campaign|cost/.test(headers + name)) {
+    return "маркетингу";
+  }
+  if (/баг|ошиб|ticket|jira|issue|support|обращен/.test(headers + name)) {
+    return "операциям";
+  }
+
+  const stem = source.name.replace(/\.[^.]+$/, "").replace(/[_-]+/g, " ").trim();
+  return stem ? `«${stem}»` : "данным";
+}
+
+export function reportOverview(source: DataSource) {
+  const years = yearsFromSource(source);
+  const topic = reportTopic(source);
+  const period =
+    years.length === 0
+      ? null
+      : years.length === 1
+        ? String(years[0])
+        : `${years[0]}–${years.at(-1)}`;
+
+  const title = period
+    ? `Отчёт за ${period} по ${topic}`
+    : `Отчёт по ${topic}`;
+
+  const summary = period
+    ? `Сводка по ${topic} за ${period}.`
+    : `Сводка по ${topic}.`;
+
+  return { title, summary, eyebrow: "Обзор отчёта" };
+}
+
+export function withReportOverview(
+  source: DataSource,
+  analysis: DashboardAnalysis,
+): DashboardAnalysis {
+  const overview = reportOverview(source);
+  return {
+    ...analysis,
+    eyebrow: overview.eyebrow,
+    title: overview.title,
+    summary: overview.summary,
+    charts: analysis.charts.map((chart) => {
+      if (chart.type !== "line") return chart;
+      return {
+        ...chart,
+        data: mergeChartPointsByDate(chart.data),
+      };
+    }),
+  };
+}
+
 function makeTableAnalysis(source: DataSource): DashboardAnalysis {
   const columns = getNumericColumns(source);
   const labels = getLabels(source, columns);
   const primary = columns[0];
   const secondary = columns[1];
   const risk = columns.find((column) => riskPattern.test(column.name)) ?? primary;
+  const overview = reportOverview(source);
 
   if (!primary) return makeTextAnalysis(source);
 
@@ -109,23 +193,31 @@ function makeTableAnalysis(source: DataSource): DashboardAnalysis {
   ];
 
   const charts: ChartSpec[] = [];
-  const timelineData = primary.values.slice(0, 12).map((item) => {
+  const dateIndex = source.headers.findIndex((header) =>
+    /дата|date|period|период/i.test(header),
+  );
+  const timelineSource = primary.values.map((item) => {
+    const rawLabel =
+      dateIndex >= 0
+        ? String(source.rows[item.rowIndex]?.[dateIndex] ?? "")
+        : labels[item.rowIndex];
     const secondaryValue = secondary?.values.find(
       (candidate) => candidate.rowIndex === item.rowIndex,
     )?.value;
 
     return {
-      label: labels[item.rowIndex],
+      label: rawLabel || labels[item.rowIndex],
       value: item.value,
       ...(secondaryValue === undefined ? {} : { secondary: secondaryValue }),
     };
   });
+  const timelineData = mergeChartPointsByDate(timelineSource, 14);
 
   charts.push({
     id: "trend",
     type: timelineData.length >= 4 ? "line" : "bar",
     title: secondary ? `${primary.name} и ${secondary.name}` : primary.name,
-    subtitle: "Динамика по ключевому измерению",
+    subtitle: "По дням",
     valueLabel: primary.name,
     secondaryLabel: secondary?.name,
     insight: `${primary.name}: от ${formatNumber(firstPrimary)} до ${formatNumber(lastPrimary)} (${primaryDelta > 0 ? "+" : ""}${formatNumber(primaryDelta)}%).`,
@@ -183,16 +275,10 @@ function makeTableAnalysis(source: DataSource): DashboardAnalysis {
     });
   }
 
-  const riskTitle = riskPattern.test(risk.name)
-    ? `${risk.name}: пик приходится на ${peakLabel}`
-    : `${primary.name} достигает пика в категории «${labels[
-        primary.values.find((item) => item.value === primary.max)?.rowIndex ?? 0
-      ]}»`;
-
   return {
-    eyebrow: "Главный сигнал",
-    title: riskTitle,
-    summary: `В наборе ${source.stats.rows} строк и ${source.stats.columns} колонок. Показатель «${risk.name}» достигает ${formatNumber(risk.max)}, при среднем ${formatNumber(risk.average)}. Самая заметная точка — ${peakLabel}; её стоит проверить в первую очередь.`,
+    eyebrow: overview.eyebrow,
+    title: overview.title,
+    summary: overview.summary,
     metrics,
     charts: charts.slice(0, 3),
     suggestedQuestions: [
@@ -290,9 +376,9 @@ function makeTextAnalysis(source: DataSource): DashboardAnalysis {
   }
 
   return {
-    eyebrow: "Кратко по тексту",
-    title: opening || "Отчёт готов к исследованию",
-    summary: `В тексте ${formatNumber(words.length)} слов и ${formatNumber(allNumbers.length)} числовых упоминаний. Без модели вывод ограничен фактами из текста: графики показывают структуру и найденные значения, не приписывая им отсутствующий смысл.`,
+    eyebrow: "Обзор отчёта",
+    title: opening ? `Отчёт: ${opening}` : "Отчёт по тексту",
+    summary: "Краткая сводка по загруженному тексту.",
     metrics: [
       {
         label: "Слов",
@@ -660,7 +746,6 @@ export function answerLocally(source: DataSource, question: string) {
   }
 
   const salesAnswer = answerSalesQuestion(source, question);
-  // undefined = not a sales dataset; null = sales dataset but no specialized match
   if (typeof salesAnswer === "string") return salesAnswer;
 
   const normalized = question.toLowerCase();

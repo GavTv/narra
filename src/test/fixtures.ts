@@ -24,7 +24,6 @@ export const salesFixture: DataSource = {
   },
 };
 
-/** Несколько месяцев — для вопросов про прибыльный/неприбыльный месяц. */
 export const multiMonthSalesFixture: DataSource = {
   name: "sales-months.csv",
   kind: "csv",

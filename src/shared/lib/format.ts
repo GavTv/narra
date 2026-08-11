@@ -29,10 +29,95 @@ export function toNumber(value: CellValue): number | null {
 }
 
 export function formatNumber(value: number, compact = false) {
+  if (compact) {
+    const absolute = Math.abs(value);
+    if (absolute >= 1_000_000) {
+      return `${trimFloat(value / 1_000_000)} млн`;
+    }
+    if (absolute >= 1_000) {
+      return `${trimFloat(value / 1_000)} тыс`;
+    }
+  }
+
   return new Intl.NumberFormat("ru-RU", {
-    notation: compact ? "compact" : "standard",
     maximumFractionDigits: Number.isInteger(value) ? 0 : 1,
   }).format(value);
+}
+
+function trimFloat(value: number) {
+  return new Intl.NumberFormat("ru-RU", {
+    maximumFractionDigits: Math.abs(value) >= 10 ? 0 : 1,
+  }).format(value);
+}
+
+export function formatChartLabel(value: unknown, max = 10) {
+  const raw = String(value ?? "").trim();
+  if (!raw) return "";
+
+  const iso = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (iso) return `${iso[3]}.${iso[2]}`;
+
+  const ru = raw.match(/^(\d{2})\.(\d{2})\.(\d{4})$/);
+  if (ru) return `${ru[1]}.${ru[2]}`;
+
+  return raw.length > max ? `${raw.slice(0, max - 1)}…` : raw;
+}
+
+export function chartDateKey(value: unknown) {
+  const raw = String(value ?? "").trim();
+  const iso = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
+
+  const ru = raw.match(/^(\d{2})\.(\d{2})\.(\d{4})$/);
+  if (ru) return `${ru[3]}-${ru[2]}-${ru[1]}`;
+
+  return raw;
+}
+
+export function chartDateSortValue(value: unknown) {
+  const key = chartDateKey(value);
+  const match = key.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return Number.POSITIVE_INFINITY;
+  return Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+}
+
+type ChartPoint = {
+  label: string;
+  value: number;
+  secondary?: number;
+};
+
+export function mergeChartPointsByDate(points: ChartPoint[], limit = 14) {
+  const groups = new Map<
+    string,
+    { label: string; value: number; secondary?: number; sort: number }
+  >();
+
+  for (const point of points) {
+    const key = chartDateKey(point.label) || point.label;
+    const current = groups.get(key);
+    if (!current) {
+      groups.set(key, {
+        label: formatChartLabel(point.label) || point.label,
+        value: point.value,
+        secondary: point.secondary,
+        sort: chartDateSortValue(point.label),
+      });
+      continue;
+    }
+
+    current.value += point.value;
+    if (point.secondary !== undefined) {
+      current.secondary = (current.secondary ?? 0) + point.secondary;
+    }
+  }
+
+  return [...groups.values()]
+    .sort((a, b) => a.sort - b.sort)
+    .slice(-limit)
+    .map(({ label, value, secondary }) =>
+      secondary === undefined ? { label, value } : { label, value, secondary },
+    );
 }
 
 export function formatFileSize(bytes: number) {

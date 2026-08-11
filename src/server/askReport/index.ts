@@ -1,1 +1,1 @@
-export { askReport, type AskReportDto } from "./askReport";
+export { askReport } from "./askReport";
