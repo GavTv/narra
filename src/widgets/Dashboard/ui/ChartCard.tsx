@@ -21,7 +21,7 @@ import {
 import type { ChartSpec } from "@/entities/analysis";
 import { formatChartLabel, formatNumber } from "@/shared/lib/format";
 
-const colors = ["#17201c", "#d7ff64", "#78cda4", "#ff8b5c", "#9aa5ff", "#f3c95f"];
+const colors = ["#0f2744", "#ff4d2e", "#1f5f8b", "#c45c2a", "#5b8fb8", "#f3c95f"];
 
 function ChartTooltip({
   active,
@@ -34,7 +34,7 @@ function ChartTooltip({
     label ?? (payload[0]?.payload as { label?: string } | undefined)?.label;
 
   return (
-    <div className="min-w-32 rounded-xl border border-white/60 bg-[#17201c]/94 px-3 py-2.5 text-white shadow-xl backdrop-blur-md">
+    <div className="min-w-32 rounded-lg border border-white/60 bg-[var(--navy)]/95 px-3 py-2.5 text-white shadow-xl backdrop-blur-md">
       <p className="mb-1.5 text-[10px] font-medium text-white/50">
         {formatChartLabel(resolvedLabel, 24) || resolvedLabel}
       </p>
@@ -147,28 +147,28 @@ function ChartVisual({ chart }: { chart: ChartSpec }) {
             tick={{ fill: "#a0a6a1", fontSize: 10 }}
             tickFormatter={compactTick}
           />
-          <Tooltip cursor={{ stroke: "#9da49e", strokeDasharray: "3 3" }} content={<ChartTooltip />} />
+          <Tooltip cursor={{ stroke: "#8aa0b5", strokeDasharray: "3 3" }} content={<ChartTooltip />} />
           <Line
             type="monotone"
             dataKey="value"
             name={chart.valueLabel}
-            stroke="#17201c"
+            stroke="#0f2744"
             strokeWidth={2.25}
             isAnimationActive={false}
-            dot={{ r: 2.5, fill: "#f8f8f4", stroke: "#17201c", strokeWidth: 1.5 }}
-            activeDot={{ r: 4.5, fill: "#d7ff64", stroke: "#17201c", strokeWidth: 2 }}
+            dot={{ r: 2.5, fill: "#f6f8fb", stroke: "#0f2744", strokeWidth: 1.5 }}
+            activeDot={{ r: 4.5, fill: "#ff4d2e", stroke: "#0f2744", strokeWidth: 2 }}
           />
           {hasSecondary && (
             <Line
               type="monotone"
               dataKey="secondary"
               name={chart.secondaryLabel ?? "Сравнение"}
-              stroke="#78cda4"
+              stroke="#1f5f8b"
               strokeWidth={2}
               strokeDasharray="5 4"
               isAnimationActive={false}
               dot={false}
-              activeDot={{ r: 4, fill: "#78cda4", stroke: "#fff", strokeWidth: 2 }}
+              activeDot={{ r: 4, fill: "#1f5f8b", stroke: "#fff", strokeWidth: 2 }}
             />
           )}
         </LineChart>
@@ -200,7 +200,7 @@ function ChartVisual({ chart }: { chart: ChartSpec }) {
         <Bar
           dataKey="value"
           name={chart.valueLabel}
-          fill="#17201c"
+          fill="#0f2744"
           radius={[6, 6, 2, 2]}
           maxBarSize={28}
           isAnimationActive={false}
@@ -209,7 +209,7 @@ function ChartVisual({ chart }: { chart: ChartSpec }) {
           <Bar
             dataKey="secondary"
             name={chart.secondaryLabel ?? "Сравнение"}
-            fill="#a9f7d1"
+            fill="#1f5f8b"
             radius={[6, 6, 2, 2]}
             maxBarSize={28}
             isAnimationActive={false}
@@ -242,21 +242,21 @@ export function ChartCard({
       initial={{ opacity: 0, y: 14 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: 0.06 * index, duration: 0.4, ease: "easeOut" }}
-      className={`soft-shadow flex flex-col rounded-[22px] border border-white/85 bg-[#fbfbf8]/90 p-4 backdrop-blur sm:p-5 ${
+      className={`soft-shadow flex flex-col rounded-xl border border-white/85 bg-white/90 p-4 backdrop-blur sm:p-5 ${
         wide ? "min-h-[320px]" : "min-h-[300px]"
       }`}
     >
       <header className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <div className="mb-1 flex items-center gap-1.5 text-[10px] font-semibold tracking-[0.12em] text-[#89908a] uppercase">
+          <div className="mb-1 flex items-center gap-1.5 text-[10px] font-semibold tracking-[0.12em] text-[var(--steel)] uppercase">
             <Icon className="size-3" />
             {label}
           </div>
-          <h3 className="truncate text-base font-semibold tracking-[-0.025em] text-[#1b2520] sm:text-lg">
+          <h3 className="font-display truncate text-base font-semibold tracking-[-0.02em] text-[var(--ink)] sm:text-lg">
             {chart.title}
           </h3>
         </div>
-        <span className="grid size-7 shrink-0 place-items-center rounded-full border border-[#e0e3dc] bg-white text-[#56605a]">
+        <span className="grid size-7 shrink-0 place-items-center rounded-md border border-[var(--line)] bg-white text-[var(--navy)]">
           <span className="text-[10px] font-semibold">0{index + 1}</span>
         </span>
       </header>

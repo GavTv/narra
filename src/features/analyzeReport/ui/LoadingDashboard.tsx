@@ -29,15 +29,15 @@ export function LoadingDashboard({ sourceName }: { sourceName: string }) {
 
   return (
     <main className="mx-auto w-full max-w-[1440px] px-4 pt-24 pb-16 sm:px-6 lg:px-10">
-      <section className="mb-6 overflow-hidden rounded-[28px] bg-[#17201c] text-white">
+      <section className="mb-6 overflow-hidden rounded-2xl bg-[var(--navy)] text-white">
         <div className="fine-grid relative min-h-[340px] p-6 sm:p-10">
-          <div className="absolute -top-24 -right-16 size-72 rounded-full bg-[#d7ff64]/16 blur-3xl" />
-          <div className="absolute -bottom-20 left-1/3 size-56 rounded-full bg-[#a9f7d1]/12 blur-3xl" />
+          <div className="absolute -top-24 -right-16 size-72 rounded-full bg-[var(--accent)]/20 blur-3xl" />
+          <div className="absolute -bottom-20 left-1/3 size-56 rounded-full bg-[var(--steel)]/25 blur-3xl" />
 
           <div className="relative flex h-full min-h-[280px] flex-col justify-between">
             <div className="flex items-center justify-between gap-4">
-              <span className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/8 px-3 py-1.5 text-[11px] font-medium text-white/72">
-                <LoaderCircle className="size-3.5 animate-spin text-[#d7ff64]" />
+              <span className="inline-flex items-center gap-2 rounded-md border border-white/10 bg-white/8 px-3 py-1.5 text-[11px] font-medium text-white/72">
+                <LoaderCircle className="size-3.5 animate-spin text-[var(--accent)]" />
                 AI-анализ
               </span>
               <span className="max-w-56 truncate text-xs text-white/45">
@@ -50,16 +50,16 @@ export function LoadingDashboard({ sourceName }: { sourceName: string }) {
                 key={activeStage}
                 initial={{ opacity: 0, y: 6 }}
                 animate={{ opacity: 1, y: 0 }}
-                className="mb-4 flex items-center gap-2 text-sm text-[#d7ff64]"
+                className="mb-4 flex items-center gap-2 text-sm text-[var(--accent)]"
               >
                 <ScanSearch className="size-4" />
                 {stages[activeStage]}
               </motion.div>
-              <div className="shimmer h-10 w-[88%] rounded-xl bg-white/9" />
-              <div className="shimmer mt-3 h-10 w-[62%] rounded-xl bg-white/9" />
-              <div className="mt-8 h-2 overflow-hidden rounded-full bg-white/10">
+              <div className="shimmer h-10 w-[88%] rounded-lg bg-white/9" />
+              <div className="shimmer mt-3 h-10 w-[62%] rounded-lg bg-white/9" />
+              <div className="mt-8 h-2 overflow-hidden rounded-sm bg-white/10">
                 <motion.div
-                  className="h-full rounded-full bg-[#d7ff64]"
+                  className="h-full rounded-sm bg-[var(--accent)]"
                   animate={{ width: `${progress}%` }}
                   transition={{ ease: "easeOut", duration: 0.4 }}
                 />
@@ -77,19 +77,19 @@ export function LoadingDashboard({ sourceName }: { sourceName: string }) {
         {stages.slice(0, 3).map((stage, index) => (
           <div
             key={stage}
-            className="rounded-[22px] border border-[#dedfd8] bg-white/60 p-5"
+            className="rounded-xl border border-[var(--line)] bg-white/70 p-5"
           >
             <div className="mb-8 flex items-center justify-between">
-              <span className="text-xs font-medium text-[#7a827c]">{stage}</span>
-              <span className="grid size-7 place-items-center rounded-full bg-[#edf0e9]">
+              <span className="text-xs font-medium text-[var(--muted)]">{stage}</span>
+              <span className="grid size-7 place-items-center rounded-md bg-[var(--card)]">
                 {index < activeStage ? (
-                  <Check className="size-3.5 text-[#3d6f53]" />
+                  <Check className="size-3.5 text-[var(--ok)]" />
                 ) : (
-                  <Sparkles className="size-3.5 text-[#8d958f]" />
+                  <Sparkles className="size-3.5 text-[var(--steel)]" />
                 )}
               </span>
             </div>
-            <div className="shimmer h-36 rounded-2xl bg-[#e9ebe5]" />
+            <div className="shimmer h-36 rounded-lg bg-[var(--line)]/50" />
           </div>
         ))}
       </section>

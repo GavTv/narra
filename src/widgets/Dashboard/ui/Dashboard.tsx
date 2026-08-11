@@ -31,15 +31,15 @@ const toneMeta: Record<
 > = {
   positive: {
     icon: ArrowUpRight,
-    className: "bg-[#e3f9eb] text-[#397054]",
+    className: "bg-[#d8f3e8] text-[var(--ok)]",
   },
   warning: {
     icon: ArrowDownRight,
-    className: "bg-[#fff0e9] text-[#a64e2d]",
+    className: "bg-[#ffe4da] text-[var(--warn)]",
   },
   neutral: {
     icon: Minus,
-    className: "bg-[#eef0eb] text-[#69716b]",
+    className: "bg-[#e4ebf2] text-[var(--steel)]",
   },
 };
 
@@ -52,19 +52,19 @@ export function Dashboard({ source, analysis, onReset }: DashboardProps) {
         className="mb-5 flex flex-col justify-between gap-3 sm:flex-row sm:items-center"
       >
         <div className="flex min-w-0 items-center gap-3">
-          <span className="grid size-10 shrink-0 place-items-center rounded-xl border border-[#d9dcd5] bg-white/70">
-            <FileSpreadsheet className="size-4.5 text-[#3d4842]" />
+          <span className="grid size-10 shrink-0 place-items-center rounded-lg border border-[var(--line)] bg-white/80">
+            <FileSpreadsheet className="size-4.5 text-[var(--steel)]" />
           </span>
           <div className="min-w-0">
             <div className="flex items-center gap-2">
-              <p className="truncate text-sm font-semibold text-[#27312c]">
+              <p className="truncate text-sm font-semibold text-[var(--ink)]">
                 {source.name}
               </p>
-              <span className="rounded-full bg-[#e8ebe4] px-2 py-0.5 text-[9px] font-semibold tracking-[0.08em] text-[#737b75] uppercase">
+              <span className="rounded-md bg-[var(--navy)]/8 px-2 py-0.5 text-[9px] font-semibold tracking-[0.08em] text-[var(--steel)] uppercase">
                 {sourceKindLabel(source.kind)}
               </span>
             </div>
-            <p className="mt-0.5 flex items-center gap-1.5 text-[11px] text-[#868e88]">
+            <p className="mt-0.5 flex items-center gap-1.5 text-[11px] text-[var(--muted)]">
               <Rows3 className="size-3" />
               {source.stats.rows} строк
               {source.stats.columns > 0 && ` · ${source.stats.columns} колонок`}
@@ -75,7 +75,7 @@ export function Dashboard({ source, analysis, onReset }: DashboardProps) {
         <button
           type="button"
           onClick={onReset}
-          className="flex w-fit items-center gap-2 rounded-xl border border-[#d5d8d1] bg-white/60 px-3.5 py-2.5 text-xs font-medium text-[#525c56] transition hover:border-[#b9beb6] hover:bg-white"
+          className="flex w-fit items-center gap-2 rounded-lg border border-[var(--line)] bg-white/70 px-3.5 py-2.5 text-xs font-medium text-[var(--navy)] transition hover:border-[var(--navy)] hover:bg-[var(--navy)] hover:text-white"
         >
           <RotateCcw className="size-3.5" />
           Другой отчёт
@@ -87,25 +87,25 @@ export function Dashboard({ source, analysis, onReset }: DashboardProps) {
           initial={{ opacity: 0, y: 18 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.55, ease: "easeOut" }}
-          className="fine-grid relative overflow-hidden rounded-[24px] bg-[#17201c] p-5 text-white sm:p-7 lg:p-8"
+          className="fine-grid relative overflow-hidden rounded-2xl bg-[var(--navy)] p-5 text-white sm:p-7 lg:p-8"
         >
-          <div className="absolute -top-24 -right-16 size-80 rounded-full bg-[#d7ff64]/18 blur-[75px]" />
-          <div className="absolute right-1/4 -bottom-28 size-72 rounded-full bg-[#7de0ae]/12 blur-[80px]" />
+          <div className="absolute -top-24 -right-16 size-80 rounded-full bg-[var(--accent)]/20 blur-[75px]" />
+          <div className="absolute right-1/4 -bottom-28 size-72 rounded-full bg-[var(--steel)]/25 blur-[80px]" />
 
           <div className="relative flex flex-col">
             <div className="mb-8 flex items-center justify-between gap-4">
-              <span className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/8 px-3 py-1.5 text-[10px] font-semibold tracking-[0.13em] text-white/72 uppercase backdrop-blur">
-                <Sparkles className="size-3 text-[#d7ff64]" />
+              <span className="inline-flex items-center gap-2 rounded-md border border-white/10 bg-white/8 px-3 py-1.5 text-[10px] font-semibold tracking-[0.13em] text-white/72 uppercase backdrop-blur">
+                <Sparkles className="size-3 text-[var(--accent)]" />
                 {analysis.eyebrow}
               </span>
               <span className="flex items-center gap-1.5 text-[10px] text-white/42">
-                <CheckCircle2 className="size-3 text-[#a9f7d1]" />
+                <CheckCircle2 className="size-3 text-[#7dceb0]" />
                 Только факты отчёта
               </span>
             </div>
 
             <div className="max-w-3xl">
-              <h1 className="text-balance text-[clamp(1.75rem,3.6vw,3.25rem)] leading-[1.05] font-semibold tracking-[-0.05em]">
+              <h1 className="font-display text-balance text-[clamp(1.75rem,3.6vw,3.1rem)] leading-[1.08] font-semibold tracking-[-0.03em]">
                 {analysis.title}
               </h1>
               <p className="mt-3 max-w-xl text-sm leading-6 text-white/60">
@@ -126,21 +126,23 @@ export function Dashboard({ source, analysis, onReset }: DashboardProps) {
                 initial={{ opacity: 0, x: 12 }}
                 animate={{ opacity: 1, x: 0 }}
                 transition={{ delay: 0.1 + index * 0.08, duration: 0.4 }}
-                className="soft-shadow flex flex-col justify-between rounded-[20px] border border-white/85 bg-[#fbfbf8]/92 p-4 backdrop-blur"
+                className="soft-shadow flex flex-col justify-between rounded-xl border border-white/85 bg-white/90 p-4 backdrop-blur"
               >
                 <div className="flex items-start justify-between gap-3">
-                  <p className="text-[10px] font-semibold tracking-[0.1em] text-[#7e867f] uppercase">
+                  <p className="text-[10px] font-semibold tracking-[0.1em] text-[var(--muted)] uppercase">
                     {metric.label}
                   </p>
-                  <span className={`grid size-7 shrink-0 place-items-center rounded-full ${meta.className}`}>
+                  <span
+                    className={`grid size-7 shrink-0 place-items-center rounded-md ${meta.className}`}
+                  >
                     <Icon className="size-3.5" />
                   </span>
                 </div>
                 <div className="mt-3">
-                  <p className="truncate text-2xl font-semibold tracking-[-0.05em] text-[#1b2520] sm:text-3xl">
+                  <p className="font-display truncate text-2xl font-semibold tracking-[-0.03em] text-[var(--ink)] sm:text-3xl">
                     {metric.value}
                   </p>
-                  <p className="mt-1 truncate text-[11px] text-[#838b85]">
+                  <p className="mt-1 truncate text-[11px] text-[var(--muted)]">
                     {metric.detail}
                   </p>
                 </div>
@@ -152,10 +154,10 @@ export function Dashboard({ source, analysis, onReset }: DashboardProps) {
 
       <section className="mt-8">
         <div className="mb-4">
-          <p className="text-[10px] font-semibold tracking-[0.14em] text-[#828a84] uppercase">
+          <p className="text-[10px] font-semibold tracking-[0.14em] text-[var(--steel)] uppercase">
             Графики
           </p>
-          <h2 className="mt-1 text-xl font-semibold tracking-[-0.04em] text-[#1b2520]">
+          <h2 className="font-display mt-1 text-xl font-semibold tracking-[-0.03em] text-[var(--ink)]">
             Динамика и структура
           </h2>
         </div>

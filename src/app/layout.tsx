@@ -1,6 +1,19 @@
 import type { Metadata, Viewport } from "next";
+import { Onest, Unbounded } from "next/font/google";
 
 import "@/app/globals.css";
+
+const sans = Onest({
+  subsets: ["cyrillic", "latin"],
+  variable: "--font-sans",
+  weight: ["400", "500", "600", "700"],
+});
+
+const display = Unbounded({
+  subsets: ["cyrillic", "latin"],
+  variable: "--font-display",
+  weight: ["500", "600", "700"],
+});
 
 export const metadata: Metadata = {
   title: "Narra — данные, которые говорят",
@@ -9,7 +22,7 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: "#f4f3ee",
+  themeColor: "#e8eef4",
 };
 
 export default function RootLayout({
@@ -18,7 +31,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="ru">
+    <html lang="ru" className={`${sans.variable} ${display.variable}`}>
       <body>{children}</body>
     </html>
   );
