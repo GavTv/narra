@@ -1,4 +1,4 @@
-import type { ChatAnswer, ChatCitation } from "@/entities/chat";
+import type { ChatAnswer, ChatTurn } from "@/entities/chat";
 import { formatNumber, toNumber } from "@/shared/lib/format";
 
 import { answerSalesQuestion } from "./localAnalysis";
@@ -19,7 +19,7 @@ type CategoryColumn = {
 };
 
 function isNonMetricColumn(name: string) {
-  return /кандидат|candidate|сотрудник|employee|клиент|customer|имя|фио|\bname\b|email|телефон|phone|\bid\b|uuid|user/i.test(
+  return /кандидат|candidate|сотрудник|employee|клиент|customer|имя|фио|\bname\b|email|телефон|phone|\bid\b|uuid|user|год|year|выпуск|рейтинг|rating|площад|area|м²|м2|комнат|rooms?|этаж|floor/i.test(
     name,
   );
 }
@@ -35,6 +35,16 @@ function numericColumns(source: DataSource): NumericColumn[] {
       });
 
       if (!values.length || values.length < source.rows.length * 0.6) return null;
+
+      const numbers = values.map((item) => item.value);
+      const yearLike = numbers.filter((value) => value >= 1900 && value <= 2100);
+      if (
+        yearLike.length >= numbers.length * 0.8 &&
+        Math.max(...yearLike) - Math.min(...yearLike) <= 120
+      ) {
+        return null;
+      }
+
       return { index, name, values };
     })
     .filter((column): column is NumericColumn => column !== null);
@@ -56,23 +66,30 @@ function operationFromQuestion(question: string): Operation | null {
 
   if (/средн|average|mean/.test(normalized)) return "average";
   if (
-    /не\s*прибыльн|наименее\s+прибыльн|убыточн|худш|сам[а-яё]*\s+не\s*прибыльн/.test(
+    /не\s*прибыльн|наименее\s+прибыльн|убыточн|худш|сам[а-яё]*\s+не\s*прибыльн|сам[а-яё]*\s+дешев|дешевле\s+всего/.test(
       normalized,
     )
   ) {
     return "min";
   }
   if (
-    /максим|наибольш|сам[а-яё]*\s+(?:больш|высок|прибыльн|доходн|выгодн)|пик|пиков|прибыльн|доходн|выгодн|maximum|max\b|peak/.test(
+    /максим|наибольш|сам[а-яё]*\s+(?:больш|высок|прибыльн|доходн|выгодн|дорог)|пик|пиков|прибыльн|доходн|выгодн|дорож|дорог|maximum|max\b|peak|expensive/.test(
       normalized,
     )
   ) {
     return "max";
   }
-  if (/миним|наименьш|сам[а-яё]*\s+(?:мал|низк)|minimum|min\b/.test(normalized)) {
+  if (
+    /миним|наименьш|сам[а-яё]*\s+(?:мал|низк|дешев)|дешев|minimum|min\b|cheap/.test(
+      normalized,
+    )
+  ) {
     return "min";
   }
-  if (/сумм|итог|всего|total/.test(normalized)) return "sum";
+  if (/больше\s+всего|чаще\s+всего|наибольшее\s+число/.test(normalized)) {
+    return "count";
+  }
+  if (/сумм|итог|(?<!больше\s)всего|total/.test(normalized)) return "sum";
   if (/сколько|количеств|count/.test(normalized)) return "count";
 
   return null;
@@ -224,6 +241,9 @@ function headerAliases(header: string) {
   }
   if (/расход|cost|spend/i.test(normalized)) {
     aliases.push("расход", "расходы", "cost");
+  }
+  if (/цена|стоим|price|amount|дорог/i.test(normalized)) {
+    aliases.push("цена", "стоимость", "price", "дорог", "дороже", "amount");
   }
 
   return aliases.flatMap((alias) => tokenizeForSearch(alias));
@@ -389,15 +409,184 @@ function calculateGrouped(
   };
 }
 
+function parseQuestionAmounts(question: string) {
+  const amounts: number[] = [];
+  const spaced = question.match(/\d{1,3}(?:\s\d{3})+(?:[.,]\d+)?/g) ?? [];
+  for (const raw of spaced) {
+    const value = Number(raw.replace(/\s/g, "").replace(",", "."));
+    if (Number.isFinite(value)) amounts.push(value);
+  }
+  const plain = question.match(/(?<![\d.,])\d{5,}(?![\d])/g) ?? [];
+  for (const raw of plain) {
+    const value = Number(raw);
+    if (Number.isFinite(value)) amounts.push(value);
+  }
+  return [...new Set(amounts)].sort((a, b) => b - a);
+}
+
+function priceLikeColumn(numeric: NumericColumn[]) {
+  return (
+    numeric.find((column) =>
+      /цена|стоим|price|amount|\bcost\b|value/i.test(column.name),
+    ) ?? null
+  );
+}
+
+function answerExtremeChallenge(
+  source: DataSource,
+  question: string,
+): ChatAnswer | null {
+  const isChallenge =
+    /а\s+может|разве|не\s+(?:этот|он)|а\s+вот|сравни|или\s+вот/i.test(question);
+  const isConfirm =
+    /то\s+есть|значит|правильно|он\s+сам|это\s+сам|сам[а-яё]*\s+дорог/i.test(
+      question,
+    );
+  if (!isChallenge && !isConfirm) return null;
+
+  const numeric = numericColumns(source);
+  const price =
+    priceLikeColumn(numeric) ?? selectColumn(numeric, question) ?? null;
+  if (!price?.values.length) return null;
+
+  const max = Math.max(...price.values.map((item) => item.value));
+  const maxRows = price.values.filter((item) => item.value === max);
+  const maxContext = rowContext(source, maxRows[0].rowIndex, price.index);
+  const amounts = parseQuestionAmounts(question);
+
+  if (isConfirm && !isChallenge) {
+    return {
+      answer: `Да. Самый большой показатель «${price.name}» — ${formatNumber(max)} (${maxContext}).`,
+      citations: rowCitations(maxRows.map((item) => item.rowIndex)),
+    };
+  }
+
+  if (!amounts.length) {
+    return {
+      answer: `Самый большой «${price.name}» в отчёте — ${formatNumber(max)} (${maxContext}). Объект с меньшей суммой самым дорогим не является.`,
+      citations: rowCitations(maxRows.map((item) => item.rowIndex)),
+    };
+  }
+
+  const challenged = amounts[0];
+  if (challenged >= max - 0.01) {
+    return {
+      answer: `Да, ${formatNumber(challenged)} — это максимум по «${price.name}» (${maxContext}).`,
+      citations: rowCitations(maxRows.map((item) => item.rowIndex)),
+    };
+  }
+
+  return {
+    answer: `Нет. ${formatNumber(challenged)} меньше максимума: самый дорогой по «${price.name}» — ${formatNumber(max)} (${maxContext}). Разница — ${formatNumber(max - challenged)}.`,
+    citations: rowCitations(maxRows.map((item) => item.rowIndex)),
+  };
+}
+
+function answerWhereMostByCategory(
+  source: DataSource,
+  question: string,
+): ChatAnswer | null {
+  if (
+    !/больше\s+всего|чаще\s+всего|наибольш|в\s+каком|какой\s+район|какая\s+категор/i.test(
+      question,
+    )
+  ) {
+    return null;
+  }
+  if (!source.rows.length || !source.headers.length) return null;
+
+  const numeric = numericColumns(source);
+  const categories = categoryColumns(source, numeric);
+  if (!categories.length) return null;
+
+  const groupColumn =
+    selectColumn(categories, question) ??
+    categories.find((column) =>
+      /район|город|регион|канал|категор|сегмент|источник|source|марка|бренд/i.test(
+        column.name,
+      ),
+    ) ??
+    null;
+  if (!groupColumn) return null;
+
+  const typeColumn = categories.find(
+    (column) =>
+      column.index !== groupColumn.index &&
+      /тип|вид|категор|статус|этап/i.test(column.name),
+  );
+  const countDistinctTypes =
+    Boolean(typeColumn) &&
+    /тип/i.test(question) &&
+    !/объект|запис|строк|квартир|дом|авто|кандидат|товар/i.test(question);
+
+  const groups = new Map<
+    string,
+    { rowIndexes: number[]; distinct: Set<string> }
+  >();
+
+  for (let rowIndex = 0; rowIndex < source.rows.length; rowIndex += 1) {
+    const label = formatCell(source.rows[rowIndex]?.[groupColumn.index]).trim();
+    if (!label || label === "—") continue;
+    const group = groups.get(label) ?? {
+      rowIndexes: [],
+      distinct: new Set<string>(),
+    };
+    group.rowIndexes.push(rowIndex);
+    if (typeColumn) {
+      const typeValue = formatCell(
+        source.rows[rowIndex]?.[typeColumn.index],
+      ).trim();
+      if (typeValue && typeValue !== "—") group.distinct.add(typeValue);
+    }
+    groups.set(label, group);
+  }
+
+  if (!groups.size) return null;
+
+  const ranked = [...groups.entries()].map(([label, group]) => ({
+    label,
+    value: countDistinctTypes ? group.distinct.size : group.rowIndexes.length,
+    rowIndexes: group.rowIndexes,
+  }));
+  const best = Math.max(...ranked.map((item) => item.value));
+  const winners = ranked.filter((item) => item.value === best);
+  const unit = countDistinctTypes
+    ? winners[0].value === 1
+      ? "тип"
+      : winners[0].value < 5
+        ? "типа"
+        : "типов"
+    : winners[0].value === 1
+      ? "объект"
+      : winners[0].value < 5
+        ? "объекта"
+        : "объектов";
+
+  if (winners.length === 1) {
+    return {
+      answer: `В «${groupColumn.name}» лидирует «${winners[0].label}»: ${formatNumber(winners[0].value)} ${unit}.`,
+      citations: rowCitations(winners[0].rowIndexes),
+    };
+  }
+
+  return {
+    answer: `По «${groupColumn.name}» одинаковый максимум у нескольких значений (${formatNumber(best)} ${unit}):\n${winners
+      .map((item) => `• «${item.label}»`)
+      .join("\n")}`,
+    citations: rowCitations(winners.flatMap((item) => item.rowIndexes)),
+  };
+}
+
 export function answerDeterministically(
   source: DataSource,
   question: string,
+  history: ChatTurn[] = [],
 ): ChatAnswer | null {
   if (isStructureQuestion(question)) {
     return answerStructureQuestion(source);
   }
 
-  const salesAnswer = answerSalesQuestion(source, question);
+  const salesAnswer = answerSalesQuestion(source, question, history);
   if (salesAnswer) {
     return {
       answer: salesAnswer,
@@ -415,11 +604,27 @@ export function answerDeterministically(
   const categoryCount = answerTotalEntityCount(source, question);
   if (categoryCount) return categoryCount;
 
-  const operation = operationFromQuestion(question);
+  const extremeChallenge = answerExtremeChallenge(source, question);
+  if (extremeChallenge) return extremeChallenge;
+
+  const whereMost = answerWhereMostByCategory(source, question);
+  if (whereMost) return whereMost;
+
+  let operation = operationFromQuestion(question);
   if (!operation || !source.rows.length || !source.headers.length) return null;
 
   const numeric = numericColumns(source);
   let selectedNumeric = selectColumn(numeric, question);
+
+  if (
+    !selectedNumeric &&
+    /дорог|дешев|цена|стоим|price|expensive|cheap/i.test(question)
+  ) {
+    selectedNumeric = priceLikeColumn(numeric);
+    if (!operation) {
+      operation = /дешев|cheap/i.test(question) ? "min" : "max";
+    }
+  }
 
   if (
     !selectedNumeric &&
@@ -461,7 +666,7 @@ export function answerDeterministically(
   const asksForGrouping =
     Boolean(temporalCategory) ||
     monthQuestion ||
-    /\bпо\b|како[а-яё]*\s+(?:категор|товар|канал|день|месяц|дат)/i.test(
+    /\bпо\b|в\s+каком|како[а-яё]*\s+(?:категор|товар|канал|день|месяц|дат|район|город)/i.test(
       question,
     );
 
@@ -511,13 +716,23 @@ export function answerDeterministically(
       ? Math.max(...values.map((item) => item.value))
       : Math.min(...values.map((item) => item.value));
   const matches = values.filter((item) => item.value === target);
-  const direction = operation === "max" ? "Максимум" : "Минимум";
+  const isPrice =
+    /цена|стоим|price|дорог/i.test(selectedNumeric.name) ||
+    /дорог|дешев/i.test(question);
+  const direction =
+    operation === "max"
+      ? isPrice
+        ? "Самый дорогой объект"
+        : "Максимум"
+      : isPrice
+        ? "Самый дешёвый объект"
+        : "Минимум";
 
   return {
     answer:
       matches.length === 1
-        ? `${direction} по показателю «${selectedNumeric.name}» — ${formatNumber(target)} (${rowContext(source, matches[0].rowIndex, selectedNumeric.index)}).`
-        : `${direction} по показателю «${selectedNumeric.name}» — ${formatNumber(target)}; значение встречается в ${matches.length} строках.`,
+        ? `${direction} по «${selectedNumeric.name}» — ${formatNumber(target)} (${rowContext(source, matches[0].rowIndex, selectedNumeric.index)}).`
+        : `${direction} по «${selectedNumeric.name}» — ${formatNumber(target)}; значение встречается в ${matches.length} строках.`,
     citations: rowCitations(matches.map((item) => item.rowIndex)),
   };
 }

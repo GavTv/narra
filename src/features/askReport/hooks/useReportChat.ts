@@ -32,8 +32,8 @@ function welcomeMessage(source: DataSource): ChatMessage {
     id: "welcome",
     role: "assistant",
     content:
-      source.kind === "text"
-        ? "Отчёт прочитан. Спросите о фактах, числах или темах из текста."
+      source.kind === "text" || (!source.headers.length && !source.rows.length)
+        ? "Текст прочитан. Спросите о фактах, числах или формулировках — без выдуманных графиков."
         : `Вижу ${source.stats.rows} строк и ${source.stats.columns} колонок. Что хотите проверить?`,
   };
 }

@@ -27,6 +27,19 @@ export async function analyzeReport(
   }
 
   try {
+    const hasTable =
+      parsed.data.headers.length > 0 && parsed.data.rows.length > 0;
+
+    // Text mode: Q&A only — skip AI dashboard charts (they invent noise without a table).
+    if (!hasTable) {
+      return ok({
+        analysis: withReportOverview(
+          parsed.data,
+          analyzeLocally(parsed.data),
+        ),
+      });
+    }
+
     let analysis: DashboardAnalysis | null = null;
 
     try {

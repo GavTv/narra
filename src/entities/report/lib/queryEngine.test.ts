@@ -5,6 +5,7 @@ import {
   hiringFixture,
   marketingFixture,
   multiMonthSalesFixture,
+  realtyFixture,
   salesFixture,
 } from "@/test/fixtures";
 
@@ -36,6 +37,35 @@ describe("answerDeterministically", () => {
       id: "row-2",
       label: "Строка 2",
     });
+  });
+
+  it("answers second place in the revenue ranking", () => {
+    const first = answerDeterministically(
+      salesFixture,
+      "Где самая большая выручка?",
+    );
+    expect(first?.answer).toContain("Куртка Urban");
+
+    const second = answerDeterministically(
+      salesFixture,
+      "Что на втором месте?",
+      [
+        { role: "user", content: "Где самая большая выручка?" },
+        { role: "assistant", content: first!.answer },
+      ],
+    );
+
+    expect(second?.answer).toContain("Кепка Street");
+    expect(second?.answer).toMatch(/90/);
+    expect(second?.answer).not.toMatch(/Информация отсутствует|пустота/i);
+  });
+
+  it("answers third place without history on sales data", () => {
+    const third = answerDeterministically(
+      salesFixture,
+      "Кто на третьем месте по выручке?",
+    );
+    expect(third?.answer).toContain("Рюкзак Trek");
   });
 
   it("keeps the specialized sales calculation and evidence", () => {
@@ -140,5 +170,58 @@ describe("answerDeterministically", () => {
 
     expect(result?.answer).toMatch(/6/);
     expect(result?.answer).not.toMatch(/отказался|Отказ|Оффер/i);
+  });
+
+  it("finds the most expensive realty object", () => {
+    const result = answerDeterministically(
+      realtyFixture,
+      "Какой объект самый дорогой?",
+    );
+
+    expect(result?.answer).toMatch(/30[\s]?268[\s]?565|30 268 565/);
+    expect(result?.answer).toMatch(/Центр|2026-05-06|Квартира/);
+  });
+
+  it("rejects a cheaper object as the most expensive", () => {
+    const result = answerDeterministically(
+      realtyFixture,
+      "а может этот - 2026-05-20 Дом Новый район 27 570 185",
+    );
+
+    expect(result?.answer).toMatch(/^Нет/);
+    expect(result?.answer).toMatch(/30/);
+    expect(result?.answer).not.toMatch(/^Да/);
+  });
+
+  it("confirms the current maximum when asked", () => {
+    const result = answerDeterministically(
+      realtyFixture,
+      "То есть он самый дорогой?",
+    );
+
+    expect(result?.answer).toMatch(/^Да/);
+    expect(result?.answer).toMatch(/30/);
+  });
+
+  it("finds the district with the most objects", () => {
+    const result = answerDeterministically(
+      realtyFixture,
+      "В каком Районе больше всего объектов?",
+    );
+
+    expect(result?.answer).toMatch(/Центр/);
+    expect(result?.answer).toMatch(/3/);
+    expect(result?.answer).not.toMatch(/Сумма по показателю/);
+  });
+
+  it("finds the district with the most property types", () => {
+    const result = answerDeterministically(
+      realtyFixture,
+      "В каком Районе больше всего типов",
+    );
+
+    expect(result?.answer).toMatch(/Центр/);
+    expect(result?.answer).toMatch(/тип/i);
+    expect(result?.answer).not.toMatch(/Сумма по показателю/);
   });
 });

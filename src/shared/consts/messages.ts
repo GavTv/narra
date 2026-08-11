@@ -1,1 +1,1 @@
-export const NO_DATA_STUB = "Тут пустота, ничего нету тута.";
+export const NO_DATA_STUB = "Информация отсутствует.";

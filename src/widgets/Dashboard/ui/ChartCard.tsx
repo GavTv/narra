@@ -238,32 +238,21 @@ export function ChartCard({
   const { icon: Icon, label } = typeMeta[chart.type];
 
   return (
-    <motion.article
+    <motion.div
       initial={{ opacity: 0, y: 14 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: 0.06 * index, duration: 0.4, ease: "easeOut" }}
-      className={`soft-shadow flex flex-col rounded-xl border border-white/85 bg-white/90 p-4 backdrop-blur sm:p-5 ${
-        wide ? "min-h-[320px]" : "min-h-[300px]"
-      }`}
+      className="soft-shadow overflow-hidden rounded-2xl border border-white/80 bg-white/90 p-4 sm:p-5"
     >
-      <header className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="mb-1 flex items-center gap-1.5 text-[10px] font-semibold tracking-[0.12em] text-[var(--steel)] uppercase">
-            <Icon className="size-3" />
-            {label}
-          </div>
-          <h3 className="font-display truncate text-base font-semibold tracking-[-0.02em] text-[var(--ink)] sm:text-lg">
-            {chart.title}
-          </h3>
-        </div>
-        <span className="grid size-7 shrink-0 place-items-center rounded-md border border-[var(--line)] bg-white text-[var(--navy)]">
-          <span className="text-[10px] font-semibold">0{index + 1}</span>
+      <div className="mb-3 flex items-center gap-1.5 text-[10px] font-semibold tracking-[0.12em] text-[var(--steel)] uppercase">
+        <span className="grid size-6 place-items-center rounded-lg bg-[var(--card)] text-[var(--navy)]">
+          <Icon className="size-3" />
         </span>
-      </header>
-
-      <div className={`mt-3 min-h-0 ${wide ? "h-[220px]" : "h-[190px]"}`}>
+        {label}
+      </div>
+      <div className={wide ? "h-[280px]" : "h-[220px]"}>
         <ChartVisual chart={chart} />
       </div>
-    </motion.article>
+    </motion.div>
   );
 }

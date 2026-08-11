@@ -4,6 +4,7 @@ import { useCallback, useSyncExternalStore } from "react";
 
 import type { DashboardAnalysis } from "@/entities/analysis";
 import type { DataSource } from "@/entities/report";
+import { withReportOverview } from "@/entities/report";
 import {
   clearChatMessages,
   clearSession,
@@ -85,7 +86,9 @@ function storedToSnapshot(saved: StoredSession | null): SessionSnapshot {
   return {
     status: saved.status === "ready" && saved.analysis ? "ready" : "error",
     source: saved.source,
-    analysis: isAnalysis(saved.analysis) ? saved.analysis : null,
+    analysis: isAnalysis(saved.analysis)
+      ? withReportOverview(saved.source, saved.analysis)
+      : null,
     error: saved.error || "",
     restored: true,
   };

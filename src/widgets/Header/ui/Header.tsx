@@ -1,6 +1,6 @@
 "use client";
 
-import { DatabaseZap, LockKeyhole } from "lucide-react";
+import { DatabaseZap, LockKeyhole, RotateCcw } from "lucide-react";
 
 function Logo() {
   return (
@@ -16,22 +16,38 @@ function Logo() {
   );
 }
 
-export function Header({ compact = false }: { compact?: boolean }) {
+export function Header({
+  compact = false,
+  onReset,
+}: {
+  compact?: boolean;
+  onReset?: () => void;
+}) {
   return (
     <header className="fixed inset-x-0 top-0 z-50 border-b border-[var(--navy)]/10 bg-[rgb(232_238_244_/0.82)] backdrop-blur-xl">
-      <div className="mx-auto flex h-16 max-w-[1440px] items-center justify-between px-4 sm:px-6 lg:px-10">
+      <div className="mx-auto flex h-16 max-w-[1440px] items-center justify-between gap-4 px-4 sm:px-6 lg:px-10">
         <Logo />
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 sm:gap-4">
           {!compact && (
-            <span className="hidden items-center gap-1.5 text-xs text-[var(--muted)] sm:flex">
+            <span className="hidden items-center gap-1.5 text-xs text-[var(--muted)] md:flex">
               <LockKeyhole className="size-3.5" />
               Данные не сохраняются
             </span>
           )}
-          <span className="flex items-center gap-1.5 rounded-md border border-[var(--line)] bg-white/70 px-2.5 py-1.5 text-[10px] font-medium text-[var(--muted)]">
-            <i className="size-1.5 rounded-sm bg-[var(--accent)]" />
-            {compact ? "Контекст загружен" : "Готов к анализу"}
-          </span>
+          {onReset ? (
+            <button
+              type="button"
+              onClick={onReset}
+              className="flex items-center gap-1.5 text-xs font-semibold text-[var(--navy)] underline decoration-[var(--accent)] decoration-2 underline-offset-4 transition hover:text-[var(--accent)]"
+            >
+              <RotateCcw className="size-3.5" />
+              Другой отчёт
+            </button>
+          ) : (
+            <span className="text-[10px] font-medium tracking-[0.08em] text-[var(--muted)] uppercase">
+              {compact ? "Контекст загружен" : "Готов к анализу"}
+            </span>
+          )}
         </div>
       </div>
     </header>

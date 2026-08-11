@@ -1,4 +1,5 @@
 import type { ChartSpec, DashboardAnalysis, Metric } from "@/entities/analysis";
+import type { ChatTurn } from "@/entities/chat";
 import { NO_DATA_STUB } from "@/shared/consts/messages";
 import {
   formatNumber,
@@ -21,6 +22,47 @@ type NumericColumn = {
 const riskPattern =
   /review|ревью|bug|баг|error|ошиб|backlog|проср|отказ|задерж|cycle|churn|возврат/i;
 
+function looksLikeYearValues(values: number[]) {
+  if (!values.length) return false;
+  const yearLike = values.filter((value) => value >= 1900 && value <= 2100);
+  if (yearLike.length < values.length * 0.8) return false;
+  const min = Math.min(...yearLike);
+  const max = Math.max(...yearLike);
+  return max - min <= 120;
+}
+
+function isNonMetricColumn(name: string, values: number[] = []) {
+  if (
+    /год|year|выпуск|model.?year|рожден|birth|\bid\b|uuid|индекс|index|рейтинг|rating|zip|инн|телефон|phone|кандидат|candidate|имя|фио|\bname\b|площад|area|м²|м2|комнат|rooms?|этаж|floor/i.test(
+      name,
+    )
+  ) {
+    return true;
+  }
+  return looksLikeYearValues(values);
+}
+
+function isMoneyColumn(name: string) {
+  return /цена|стоим|выруч|revenue|price|amount|продаж|sales|сумм|прибыл|profit/i.test(
+    name,
+  );
+}
+
+function metricPriority(name: string) {
+  if (isMoneyColumn(name)) return 0;
+  if (
+    /пробег|mileage|заказ|order|лид|lead|расход|cost|количеств|count|шт/i.test(
+      name,
+    )
+  ) {
+    return 10;
+  }
+  if (/год|year|выпуск|\bid\b|рейтинг|rating|площад|area|комнат/i.test(name)) {
+    return 100;
+  }
+  return 40;
+}
+
 function getNumericColumns(source: DataSource): NumericColumn[] {
   return source.headers
     .map((name, index) => {
@@ -32,6 +74,8 @@ function getNumericColumns(source: DataSource): NumericColumn[] {
       if (!values.length || values.length < source.rows.length * 0.6) return null;
 
       const numbers = values.map((item) => item.value);
+      if (isNonMetricColumn(name, numbers)) return null;
+
       const sum = numbers.reduce((total, value) => total + value, 0);
 
       return {
@@ -44,7 +88,11 @@ function getNumericColumns(source: DataSource): NumericColumn[] {
         max: Math.max(...numbers),
       };
     })
-    .filter((column): column is NumericColumn => column !== null);
+    .filter((column): column is NumericColumn => column !== null)
+    .sort(
+      (a, b) =>
+        metricPriority(a.name) - metricPriority(b.name) || a.index - b.index,
+    );
 }
 
 function getLabels(source: DataSource, numericColumns: NumericColumn[]) {
@@ -61,16 +109,46 @@ function getLabels(source: DataSource, numericColumns: NumericColumn[]) {
 }
 
 function trendDetail(column: NumericColumn) {
-  const first = column.values.at(0)?.value;
-  const last = column.values.at(-1)?.value;
+  return `по ${column.values.length} значениям`;
+}
 
-  if (first === undefined || last === undefined || first === 0) {
-    return "по всему набору";
+function entityCountMetric(source: DataSource): Metric {
+  const context = `${source.headers.join(" ")} ${source.name}`.toLowerCase();
+  const count = source.rows.length;
+
+  if (/кандидат|ваканси|отклик|hiring|resume|резюме/.test(context)) {
+    return {
+      label: "Всего кандидатов",
+      value: formatNumber(count),
+      detail: "записей в таблице",
+      tone: "neutral",
+    };
   }
 
-  const change = ((last - first) / Math.abs(first)) * 100;
-  const prefix = change > 0 ? "+" : "";
-  return `${prefix}${formatNumber(change)}% от первой точки`;
+  if (/авто|машин|car|пробег|mileage|выпуск|vin/.test(context)) {
+    return {
+      label: "Всего авто",
+      value: formatNumber(count),
+      detail: "записей в таблице",
+      tone: "neutral",
+    };
+  }
+
+  if (/квартир|дом|недвиж|риелт|realty|площад|район/.test(context)) {
+    return {
+      label: "Всего объектов",
+      value: formatNumber(count),
+      detail: "записей в таблице",
+      tone: "neutral",
+    };
+  }
+
+  return {
+    label: "Всего записей",
+    value: formatNumber(count),
+    detail: "строк в отчёте",
+    tone: "neutral",
+  };
 }
 
 function yearsFromSource(source: DataSource) {
@@ -96,19 +174,106 @@ function yearsFromSource(source: DataSource) {
 function reportTopic(source: DataSource) {
   const headers = source.headers.join(" ").toLowerCase();
   const name = source.name.toLowerCase();
+  const body =
+    source.headers.length > 0
+      ? ""
+      : source.content.slice(0, 2_500).toLowerCase();
+  const blob = `${headers} ${name} ${body}`;
 
-  if (/выруч|заказ|товар|продаж|sales|revenue|order|product/.test(headers + name)) {
+  if (/выруч|заказ|товар|продаж|sales|revenue|order|product/.test(blob)) {
     return "продажам";
   }
-  if (/лид|канал|расход|конверс|маркетинг|lead|campaign|cost/.test(headers + name)) {
+  if (/авто|машин|car|пробег|mileage|выпуск/.test(blob)) {
+    return "авто";
+  }
+  if (/квартир|дом|недвиж|риелт|realty|площад/.test(blob)) {
+    return "недвижимости";
+  }
+  if (/лид|канал|расход|конверс|маркетинг|lead|campaign|cost/.test(blob)) {
     return "маркетингу";
   }
-  if (/баг|ошиб|ticket|jira|issue|support|обращен/.test(headers + name)) {
+  if (/баг|ошиб|ticket|jira|issue|support|обращен|спринт|cycle/.test(blob)) {
     return "операциям";
+  }
+  if (/кандидат|вакан|найм|hiring|оффер|скрининг/.test(blob)) {
+    return "найму";
   }
 
   const stem = source.name.replace(/\.[^.]+$/, "").replace(/[_-]+/g, " ").trim();
-  return stem ? `«${stem}»` : "данным";
+  if (stem && !/^вставленный|текстовый|отчёт$/i.test(stem)) {
+    return `«${stem}»`;
+  }
+  return "данным";
+}
+
+function fileStem(name: string) {
+  return name.replace(/\.[^.]+$/, "").replace(/[_]+/g, " ").trim() || "отчёт";
+}
+
+function joinRu(items: string[]) {
+  if (items.length <= 1) return items[0] ?? "";
+  if (items.length === 2) return `${items[0]} и ${items[1]}`;
+  return `${items.slice(0, -1).join(", ")} и ${items.at(-1)}`;
+}
+
+function softenMetricName(name: string) {
+  const trimmed = name.replace(/\s+/g, " ").trim();
+  if (!trimmed || /^[A-Za-z]/.test(trimmed)) return trimmed;
+  return trimmed.charAt(0).toLowerCase() + trimmed.slice(1);
+}
+
+function byDimension(header: string) {
+  const key = header.trim().toLowerCase();
+  if (/^(день|day)$/.test(key)) return "по дням";
+  if (/^(дата|date)$/.test(key)) return "по датам";
+  if (/товар|product|item/.test(key)) return "по товарам";
+  if (/категор|category/.test(key)) return "по категориям";
+  if (/город|city/.test(key)) return "по городам";
+  if (/район|district/.test(key)) return "по районам";
+  if (/канал|channel/.test(key)) return "по каналам";
+  if (/этап|статус|stage|status/.test(key)) return `по полю «${header.trim()}»`;
+  return `по «${header.trim()}»`;
+}
+
+function contentSummary(source: DataSource) {
+  const stem = fileStem(source.name);
+
+  if (!source.headers.length) {
+    const topic = reportTopic(source);
+    return topic.startsWith("«")
+      ? `В тексте — материал по теме ${topic}.`
+      : `В тексте — материал по ${topic}.`;
+  }
+
+  const numeric = getNumericColumns(source);
+  const metricIndexes = new Set(numeric.map((column) => column.index));
+  const dimensions = source.headers.filter(
+    (header, index) =>
+      !metricIndexes.has(index) &&
+      !/кандидат|candidate|сотрудник|имя|фио|\bname\b|email|телефон|phone|\bid\b/i.test(
+        header,
+      ),
+  );
+
+  const metrics = numeric
+    .slice(0, 5)
+    .map((column) => softenMetricName(column.name));
+  const metricsText =
+    metrics.length > 0
+      ? joinRu(metrics) + (numeric.length > 5 ? " и др." : "")
+      : joinRu(source.headers.slice(0, 5).map(softenMetricName));
+
+  if (dimensions.length > 0 && metrics.length > 0) {
+    return `В файле «${stem}»: показатели ${byDimension(dimensions[0])} — ${metricsText}.`;
+  }
+
+  if (metrics.length > 0) {
+    return `В файле «${stem}»: ${source.stats.rows} записей, показатели — ${metricsText}.`;
+  }
+
+  return `В файле «${stem}»: ${source.stats.rows} записей, поля — ${joinRu(
+    source.headers.slice(0, 6),
+  )}.`;
 }
 
 export function reportOverview(source: DataSource) {
@@ -125,11 +290,7 @@ export function reportOverview(source: DataSource) {
     ? `Отчёт за ${period} по ${topic}`
     : `Отчёт по ${topic}`;
 
-  const summary = period
-    ? `Сводка по ${topic} за ${period}.`
-    : `Сводка по ${topic}.`;
-
-  return { title, summary, eyebrow: "Обзор отчёта" };
+  return { title, summary: contentSummary(source), eyebrow: "Обзор отчёта" };
 }
 
 export function withReportOverview(
@@ -137,57 +298,75 @@ export function withReportOverview(
   analysis: DashboardAnalysis,
 ): DashboardAnalysis {
   const overview = reportOverview(source);
-  return {
-    ...analysis,
-    eyebrow: overview.eyebrow,
-    title: overview.title,
-    summary: overview.summary,
-    charts: analysis.charts.map((chart) => {
+  const local = analyzeLocally(source);
+  const hasTable = source.headers.length > 0 && source.rows.length > 0;
+
+  if (!hasTable) {
+    return {
+      ...local,
+      eyebrow: local.eyebrow || overview.eyebrow,
+      title: local.title || overview.title,
+      summary: local.summary,
+      charts: [],
+    };
+  }
+
+  const useLocalVisuals = local.charts.length > 0;
+
+  const charts = (useLocalVisuals ? local.charts : analysis.charts).map(
+    (chart) => {
       if (chart.type !== "line") return chart;
       return {
         ...chart,
         data: mergeChartPointsByDate(chart.data),
       };
-    }),
+    },
+  );
+
+  return {
+    ...analysis,
+    eyebrow: overview.eyebrow,
+    title: overview.title,
+    summary: overview.summary,
+    metrics: useLocalVisuals ? local.metrics : analysis.metrics,
+    charts,
+    suggestedQuestions: useLocalVisuals
+      ? local.suggestedQuestions
+      : analysis.suggestedQuestions,
   };
 }
 
 function makeTableAnalysis(source: DataSource): DashboardAnalysis {
   const columns = getNumericColumns(source);
   const labels = getLabels(source, columns);
-  const primary = columns[0];
-  const secondary = columns[1];
-  const risk = columns.find((column) => riskPattern.test(column.name)) ?? primary;
+  const primary =
+    columns.find((column) => isMoneyColumn(column.name)) ?? columns[0];
+  const risk =
+    columns.find(
+      (column) =>
+        riskPattern.test(column.name) && column.index !== primary?.index,
+    ) ?? primary;
   const overview = reportOverview(source);
 
   if (!primary) return makeTextAnalysis(source);
 
-  const peak = risk.values.reduce((best, item) =>
+  const peak = primary.values.reduce((best, item) =>
     item.value > best.value ? item : best,
   );
   const peakLabel = labels[peak.rowIndex] ?? `строке ${peak.rowIndex + 1}`;
-  const lastPrimary = primary.values.at(-1)?.value ?? primary.average;
-  const firstPrimary = primary.values.at(0)?.value ?? primary.average;
-  const primaryDelta =
-    firstPrimary === 0 ? 0 : ((lastPrimary - firstPrimary) / Math.abs(firstPrimary)) * 100;
 
   const metrics: Metric[] = [
+    entityCountMetric(source),
     {
-      label: `Всего · ${primary.name}`,
-      value: formatNumber(primary.sum, true),
-      detail: `${primary.values.length} точек данных`,
-      tone: "neutral",
-    },
-    {
-      label: `Пик · ${risk.name}`,
-      value: formatNumber(risk.max, true),
+      label: `Пик · ${primary.name}`,
+      value: formatNumber(primary.max, true),
       detail: peakLabel,
-      tone: riskPattern.test(risk.name) ? "warning" : "positive",
+      tone: "positive",
     },
     {
-      label: `Среднее · ${(secondary ?? primary).name}`,
-      value: formatNumber((secondary ?? primary).average, true),
-      detail: trendDetail(secondary ?? primary),
+      label: `Среднее · ${primary.name}`,
+      value: formatNumber(primary.average, true),
+      detail: trendDetail(primary),
       tone: "neutral",
     },
   ];
@@ -196,79 +375,82 @@ function makeTableAnalysis(source: DataSource): DashboardAnalysis {
   const dateIndex = source.headers.findIndex((header) =>
     /дата|date|period|период/i.test(header),
   );
+  const moneyMode = isMoneyColumn(primary.name) && dateIndex >= 0;
+
   const timelineSource = primary.values.map((item) => {
     const rawLabel =
       dateIndex >= 0
         ? String(source.rows[item.rowIndex]?.[dateIndex] ?? "")
         : labels[item.rowIndex];
-    const secondaryValue = secondary?.values.find(
-      (candidate) => candidate.rowIndex === item.rowIndex,
-    )?.value;
 
     return {
       label: rawLabel || labels[item.rowIndex],
       value: item.value,
-      ...(secondaryValue === undefined ? {} : { secondary: secondaryValue }),
     };
   });
   const timelineData = mergeChartPointsByDate(timelineSource, 14);
+  const dailyPeak = timelineData.reduce(
+    (best, item) => (item.value > best.value ? item : best),
+    timelineData[0] ?? { label: "", value: 0 },
+  );
 
   charts.push({
     id: "trend",
     type: timelineData.length >= 4 ? "line" : "bar",
-    title: secondary ? `${primary.name} и ${secondary.name}` : primary.name,
-    subtitle: "По дням",
-    valueLabel: primary.name,
-    secondaryLabel: secondary?.name,
-    insight: `${primary.name}: от ${formatNumber(firstPrimary)} до ${formatNumber(lastPrimary)} (${primaryDelta > 0 ? "+" : ""}${formatNumber(primaryDelta)}%).`,
+    title: moneyMode ? "Сумма продаж по дням" : primary.name,
+    subtitle: moneyMode ? "Сумма за день" : "По дням",
+    valueLabel: moneyMode ? "Сумма продаж" : primary.name,
+    insight: moneyMode
+      ? `Пик дня — ${dailyPeak.label}: ${formatNumber(dailyPeak.value)}.`
+      : `Динамика «${primary.name}».`,
     data: timelineData,
   });
 
-  if (risk.index !== primary.index || columns.length > 2) {
-    const compared = columns.find(
-      (column) => column.index !== risk.index && column.index !== primary.index,
-    );
+  const categoryIndex = source.headers.findIndex(
+    (header, index) =>
+      index !== dateIndex &&
+      !columns.some((column) => column.index === index) &&
+      /тип|категор|район|город|регион|товар|product|канал|source|марка|бренд|segment/i.test(
+        header,
+      ),
+  );
 
+  if (moneyMode && categoryIndex >= 0 && charts.length < 2) {
+    const groups = new Map<string, number>();
+    for (const item of primary.values) {
+      const raw = String(source.rows[item.rowIndex]?.[categoryIndex] ?? "").trim();
+      if (!raw || raw === "—") continue;
+      groups.set(raw, (groups.get(raw) ?? 0) + item.value);
+    }
+    const ranked = [...groups.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 8);
+
+    if (ranked.length >= 2) {
+      charts.push({
+        id: "by-category",
+        type: "bar",
+        title: `Продажи по «${source.headers[categoryIndex]}»`,
+        subtitle: "Сумма",
+        valueLabel: "Сумма продаж",
+        insight: `Лидер — «${ranked[0][0]}»: ${formatNumber(ranked[0][1])}.`,
+        data: ranked.map(([label, value]) => ({ label, value })),
+      });
+    }
+  } else if (
+    risk &&
+    risk.index !== primary.index &&
+    !isMoneyColumn(risk.name) &&
+    charts.length < 2
+  ) {
     charts.push({
       id: "risk",
       type: "bar",
       title: risk.name,
       subtitle: `Максимум — ${peakLabel}`,
       valueLabel: risk.name,
-      secondaryLabel: compared?.name,
-      insight: `${formatNumber(risk.max)} — пик показателя; среднее значение составляет ${formatNumber(risk.average)}.`,
-      data: risk.values.slice(0, 10).map((item) => {
-        const comparedValue = compared?.values.find(
-          (candidate) => candidate.rowIndex === item.rowIndex,
-        )?.value;
-
-        return {
-          label: labels[item.rowIndex],
-          value: item.value,
-          ...(comparedValue === undefined ? {} : { secondary: comparedValue }),
-        };
-      }),
-    });
-  }
-
-  const distribution = [...columns]
-    .reverse()
-    .find((column) => column.values.every((item) => item.value >= 0));
-
-  if (distribution && labels.length <= 8 && charts.length < 3) {
-    const distributionPeak = distribution.values.reduce((best, item) =>
-      item.value > best.value ? item : best,
-    );
-    const distributionPeakLabel = labels[distributionPeak.rowIndex];
-
-    charts.push({
-      id: "distribution",
-      type: "pie",
-      title: `Структура · ${distribution.name}`,
-      subtitle: "Доля каждой категории",
-      valueLabel: distribution.name,
-      insight: `${distributionPeakLabel} — крупнейший сегмент: ${formatNumber(distributionPeak.value)}.`,
-      data: distribution.values.map((item) => ({
+      insight: `${formatNumber(risk.max)} — пик показателя; среднее — ${formatNumber(risk.average)}.`,
+      data: risk.values.slice(0, 10).map((item) => ({
         label: labels[item.rowIndex],
         value: item.value,
       })),
@@ -280,44 +462,14 @@ function makeTableAnalysis(source: DataSource): DashboardAnalysis {
     title: overview.title,
     summary: overview.summary,
     metrics,
-    charts: charts.slice(0, 3),
+    charts: charts.slice(0, 2),
     suggestedQuestions: [
-      `Где максимум по показателю «${risk.name}»?`,
-      `Как менялся показатель «${primary.name}»?`,
+      `Какой день был с наибольшей суммой по «${primary.name}»?`,
+      `Где максимум по показателю «${primary.name}»?`,
       "Каких данных не хватает для вывода о причинах?",
     ],
     generatedBy: "local",
   };
-}
-
-function topTerms(text: string) {
-  const stopWords = new Set([
-    "это",
-    "как",
-    "для",
-    "что",
-    "или",
-    "при",
-    "был",
-    "была",
-    "были",
-    "the",
-    "and",
-    "with",
-    "from",
-    "this",
-    "that",
-  ]);
-
-  const counts = new Map<string, number>();
-  for (const word of text.toLowerCase().match(/[a-zа-яё]{4,}/gi) ?? []) {
-    if (!stopWords.has(word)) counts.set(word, (counts.get(word) ?? 0) + 1);
-  }
-
-  return [...counts.entries()]
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 6)
-    .map(([label, value]) => ({ label, value }));
 }
 
 function makeTextAnalysis(source: DataSource): DashboardAnalysis {
@@ -328,83 +480,37 @@ function makeTextAnalysis(source: DataSource): DashboardAnalysis {
   const allNumbers = (source.content.match(/-?\d+(?:[.,]\d+)?/g) ?? [])
     .map((value) => toNumber(value))
     .filter((value): value is number => value !== null);
-  const numbers = allNumbers.slice(0, 10);
   const words = source.content.match(/[a-zа-яё0-9]+/gi) ?? [];
-  const terms = topTerms(source.content);
-  const opening = lines[0]?.replace(/^[-#*\s]+/, "").slice(0, 90);
-
-  const charts: ChartSpec[] = [
-    {
-      id: "paragraphs",
-      type: "bar",
-      title: "Плотность отчёта",
-      subtitle: "Количество слов по фрагментам",
-      valueLabel: "Слова",
-      insight: "Более длинные фрагменты обычно содержат больше контекста для проверки.",
-      data: lines.slice(0, 8).map((line, index) => ({
-        label: `Фрагмент ${index + 1}`,
-        value: line.split(/\s+/).length,
-      })),
-    },
-  ];
-
-  if (numbers.length > 1) {
-    charts.unshift({
-      id: "numbers",
-      type: "line",
-      title: "Числа в отчёте",
-      subtitle: "В порядке появления в тексте",
-      valueLabel: "Значение",
-      insight: "Это извлечённые значения без домыслов; подписи стоит сверить с исходным текстом.",
-      data: numbers.map((value, index) => ({
-        label: `№ ${index + 1}`,
-        value,
-      })),
-    });
-  }
-
-  if (terms.length > 1) {
-    charts.push({
-      id: "terms",
-      type: "pie",
-      title: "Темы отчёта",
-      subtitle: "Частотность ключевых слов",
-      valueLabel: "Упоминания",
-      insight: `Чаще всего встречается тема «${terms[0].label}».`,
-      data: terms,
-    });
-  }
+  const overview = reportOverview(source);
 
   return {
-    eyebrow: "Обзор отчёта",
-    title: opening ? `Отчёт: ${opening}` : "Отчёт по тексту",
-    summary: "Краткая сводка по загруженному тексту.",
+    eyebrow: "Текст",
+    title: overview.title,
+    summary: `${overview.summary} Спрашивайте факты в чате; графики — из таблиц.`,
     metrics: [
       {
-        label: "Слов",
-        value: formatNumber(words.length, true),
-        detail: `${lines.length} фрагментов`,
+        label: "Символов",
+        value: formatNumber(source.stats.characters, true),
+        detail: "объём текста",
         tone: "neutral",
       },
       {
-        label: "Числовых значений",
+        label: "Фрагментов",
+        value: formatNumber(lines.length, true),
+        detail: "абзацев и строк",
+        tone: "neutral",
+      },
+      {
+        label: "Чисел в тексте",
         value: formatNumber(allNumbers.length),
-        detail: "найдено в тексте",
+        detail: words.length
+          ? `${formatNumber(words.length, true)} слов`
+          : "можно уточнить в чате",
         tone: allNumbers.length ? "positive" : "neutral",
       },
-      {
-        label: "Основная тема",
-        value: terms[0]?.label ?? "—",
-        detail: terms[0] ? `${terms[0].value} упоминаний` : "не определена",
-        tone: "neutral",
-      },
     ],
-    charts: charts.slice(0, 3),
-    suggestedQuestions: [
-      "Какие числа упомянуты в отчёте?",
-      "Какая тема встречается чаще всего?",
-      "Есть ли в отчёте причины изменений?",
-    ],
+    charts: [],
+    suggestedQuestions: [],
     generatedBy: "local",
   };
 }
@@ -542,6 +648,111 @@ function requestedTopCount(question: string) {
   return Number.isFinite(value) && value > 0 ? Math.min(value, 20) : null;
 }
 
+/** 1-based place: «на втором месте», «а третий?», «кто следующий». */
+function requestedRankPlace(question: string): number | null {
+  const q = question.toLowerCase().replace(/ё/g, "е");
+
+  if (
+    /(?:кто|что)?\s*(?:же\s+)?(?:тогда\s+)?(?:следующ|дальше)\b|после\s+(?:него|нее|этого)|еще\s+один\b/i.test(
+      q,
+    )
+  ) {
+    return 2;
+  }
+
+  const patterns: Array<[RegExp, number]> = [
+    [/(?:на\s+)?перв(?:ом|ое|ый|ая)\s+мест|1[-.]?\s*мест|\bтоп\s*1\b/, 1],
+    [
+      /(?:на\s+)?втор(?:ом|ое|ой|ая)\s+мест|2[-.]?\s*мест|(?:^|\s)(?:а\s+)?(?:что|кто|какой)?\s*(?:же\s+)?втор(?:ой|ое|ом|ая)(?:\?|$|\s)/,
+      2,
+    ],
+    [
+      /(?:на\s+)?треть(?:ем|е|ий|я)\s+мест|3[-.]?\s*мест|(?:^|\s)(?:а\s+)?(?:что|кто|какой)?\s*(?:же\s+)?треть(?:ий|е|ем|я)(?:\?|$|\s)/,
+      3,
+    ],
+    [/(?:на\s+)?четверт(?:ом|ое|ый|ая)\s+мест|4[-.]?\s*мест/, 4],
+    [/(?:на\s+)?пят(?:ом|ое|ый|ая)\s+мест|5[-.]?\s*мест/, 5],
+  ];
+
+  for (const [pattern, place] of patterns) {
+    if (pattern.test(q)) return place;
+  }
+
+  const numbered = q.match(
+    /(?:на\s+)?(\d{1,2})(?:[-.]?[мoe]?)?\s*(?:м\s+)?мест/,
+  );
+  if (numbered) {
+    const value = Number(numbered[1]);
+    if (Number.isFinite(value) && value >= 1 && value <= 20) return value;
+  }
+
+  return null;
+}
+
+function inferSalesRankContext(history: ChatTurn[] | undefined): {
+  metric: "orders" | "revenue";
+  direction: "min" | "max";
+} | null {
+  if (!history?.length) return null;
+
+  const recent = history
+    .slice(-6)
+    .map((turn) => turn.content.toLowerCase().replace(/ё/g, "е"))
+    .join("\n");
+
+  const metric: "orders" | "revenue" =
+    /заказ/.test(recent) && !/выруч/.test(recent) ? "orders" : "revenue";
+
+  const direction: "min" | "max" =
+    /наименьш|меньше всего|сам[а-я]*\s+(?:мал|низк)|миним/.test(recent) &&
+    !/наибольш|больше всего|сам[а-я]*\s+(?:больш|высок)|максим/.test(recent)
+      ? "min"
+      : "max";
+
+  if (
+    /выруч|заказ|товар|продаж|наибольш|наименьш|максим|миним|больше всего|меньше всего/.test(
+      recent,
+    )
+  ) {
+    return { metric, direction };
+  }
+
+  return null;
+}
+
+function placeLabel(place: number) {
+  const special: Record<number, string> = {
+    1: "первом",
+    2: "втором",
+    3: "третьем",
+    4: "четвёртом",
+    5: "пятом",
+  };
+  return special[place] ?? `${place}-м`;
+}
+
+function rankedPlaceAnswer(
+  records: SalesRecord[],
+  direction: "min" | "max",
+  metric: "orders" | "revenue",
+  place: number,
+) {
+  const totals = aggregateSales(records).sort((a, b) =>
+    direction === "min" ? a[metric] - b[metric] : b[metric] - a[metric],
+  );
+  if (!totals.length) return null;
+
+  if (place > totals.length) {
+    return `В рейтинге только ${totals.length} товар${totals.length === 1 ? "" : totals.length < 5 ? "а" : "ов"} — ${place}-го места нет.`;
+  }
+
+  const item = totals[place - 1];
+  const period = salesPeriod(records);
+  const metricLabel = metric === "orders" ? "по заказам" : "по выручке";
+
+  return `На ${placeLabel(place)} месте ${metricLabel} — «${item.product}»: выручка — ${formatNumber(item.revenue)} ₽, ${formatNumber(item.orders)} ${ordersLabel(item.orders)} за период ${period}.`;
+}
+
 function rankedProductAnswer(
   records: SalesRecord[],
   direction: "min" | "max",
@@ -580,6 +791,7 @@ function rankedProductAnswer(
 export function answerSalesQuestion(
   source: DataSource,
   question: string,
+  history: ChatTurn[] = [],
 ): string | null | undefined {
   const records = getSalesRecords(source);
   if (!records) return undefined;
@@ -597,6 +809,23 @@ export function answerSalesQuestion(
   const asksProduct =
     /товар|продукт|како[а-яё]*\s+прода|что\s+прода/i.test(normalized);
   const topCount = requestedTopCount(question);
+  const place = requestedRankPlace(question);
+
+  if (place !== null) {
+    const inferred = inferSalesRankContext(history);
+    const metric: "orders" | "revenue" =
+      asksOrders && !asksRevenue
+        ? "orders"
+        : asksRevenue && !asksOrders
+          ? "revenue"
+          : (inferred?.metric ?? "revenue");
+    const direction: "min" | "max" = asksMin
+      ? "min"
+      : asksMax
+        ? "max"
+        : (inferred?.direction ?? "max");
+    return rankedPlaceAnswer(records, direction, metric, place);
+  }
 
   if (asksProduct && (asksMax || asksMin)) {
     const metric = asksRevenue && !asksOrders ? "revenue" : "orders";
