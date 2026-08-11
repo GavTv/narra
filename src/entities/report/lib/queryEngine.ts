@@ -1,4 +1,4 @@
-import type { ChatAnswer, ChatTurn } from "@/entities/chat";
+import type { ChatAnswer, ChatCitation, ChatTurn } from "@/entities/chat";
 import { formatNumber, toNumber } from "@/shared/lib/format";
 
 import { answerSalesQuestion } from "./localAnalysis";
