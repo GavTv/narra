@@ -16,6 +16,15 @@ export function toNumber(value: CellValue): number | null {
     return null;
   }
 
+  // Keep model codes like "X5" / "A6" as text, not numbers.
+  const withoutUnits = raw.replace(
+    /(?:руб\.?|р\.?|₽|usd|eur|€|\$|км|шт\.?|шт|тыс\.?|млн\.?)/gi,
+    "",
+  );
+  if (/[a-zа-яё]/i.test(withoutUnits)) {
+    return null;
+  }
+
   const normalized = raw
     .replace(/\s|\u00a0/g, "")
     .replace(/,(?=.*[.,])/g, "")

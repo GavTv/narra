@@ -3,7 +3,13 @@ import "server-only";
 import { ChatOpenAI } from "@langchain/openai";
 import type { BaseChatModel } from "@langchain/core/language_models/chat_models";
 
-type AltProviderId = "openai" | "openrouter" | "groq";
+import {
+  createGigaChatModel,
+  generateWithGigaChat,
+  hasGigaChatKey,
+} from "./gigachat";
+
+type AltProviderId = "openai" | "openrouter" | "groq" | "gigachat";
 
 type CompatibleProvider = {
   id: AltProviderId;
@@ -31,7 +37,12 @@ function hasOpenRouterKey() {
 }
 
 export function hasAltLlmKey() {
-  return hasOpenAIKey() || hasOpenRouterKey() || hasGroqKey();
+  return (
+    hasOpenAIKey() ||
+    hasOpenRouterKey() ||
+    hasGroqKey() ||
+    hasGigaChatKey()
+  );
 }
 
 const PROVIDERS: CompatibleProvider[] = [
@@ -63,7 +74,7 @@ const PROVIDERS: CompatibleProvider[] = [
   },
 ];
 
-function providerKey(id: AltProviderId) {
+function providerKey(id: Exclude<AltProviderId, "gigachat">) {
   if (id === "openai") return process.env.OPENAI_API_KEY?.trim();
   if (id === "openrouter") return process.env.OPENROUTER_API_KEY?.trim();
   return process.env.GROQ_API_KEY?.trim();
@@ -93,7 +104,8 @@ export function preferAltFirst() {
   return (
     provider === "openai" ||
     provider === "openrouter" ||
-    provider === "groq"
+    provider === "groq" ||
+    provider === "gigachat"
   );
 }
 
@@ -115,7 +127,7 @@ async function generateWithCompatible(
   provider: CompatibleProvider,
   { prompt, temperature, maxOutputTokens, json = false }: CompatibleRequest,
 ) {
-  const apiKey = providerKey(provider.id);
+  const apiKey = providerKey(provider.id as Exclude<AltProviderId, "gigachat">);
   if (!apiKey) return null;
 
   const response = await fetch(`${provider.baseURL}/chat/completions`, {
@@ -154,14 +166,42 @@ async function generateWithCompatible(
 
 export async function generateWithAltLlms(request: CompatibleRequest) {
   let lastError: unknown;
+  const preferred = (process.env.AI_PROVIDER || "").toLowerCase();
 
-  for (const provider of altProvidersInOrder()) {
-    try {
-      const text = await generateWithCompatible(provider, request);
-      if (text) return text;
-    } catch (error) {
-      lastError = error;
-      console.error(`${provider.label} generation failed:`, error);
+  const runGigaChat = async () => {
+    if (!hasGigaChatKey()) return null;
+    return generateWithGigaChat({
+      prompt: request.prompt,
+      temperature: request.temperature,
+      maxOutputTokens: request.maxOutputTokens,
+    });
+  };
+
+  const providers =
+    preferred === "gigachat"
+      ? (["gigachat", "compatible"] as const)
+      : (["compatible", "gigachat"] as const);
+
+  for (const kind of providers) {
+    if (kind === "gigachat") {
+      try {
+        const text = await runGigaChat();
+        if (text) return text;
+      } catch (error) {
+        lastError = error;
+        console.error("GigaChat generation failed:", error);
+      }
+      continue;
+    }
+
+    for (const provider of altProvidersInOrder()) {
+      try {
+        const text = await generateWithCompatible(provider, request);
+        if (text) return text;
+      } catch (error) {
+        lastError = error;
+        console.error(`${provider.label} generation failed:`, error);
+      }
     }
   }
 
@@ -173,7 +213,7 @@ export function createCompatibleChatModel(
   provider: CompatibleProvider,
   options?: { temperature?: number; maxTokens?: number },
 ): BaseChatModel | null {
-  const apiKey = providerKey(provider.id);
+  const apiKey = providerKey(provider.id as Exclude<AltProviderId, "gigachat">);
   if (!apiKey) return null;
 
   return new ChatOpenAI({
@@ -192,8 +232,18 @@ export function createAltChatModels(options?: {
   temperature?: number;
   maxTokens?: number;
 }): BaseChatModel[] {
-  return altProvidersInOrder().flatMap((provider) => {
+  const preferred = (process.env.AI_PROVIDER || "").toLowerCase();
+  const compatible = altProvidersInOrder().flatMap((provider) => {
     const model = createCompatibleChatModel(provider, options);
     return model ? [model] : [];
   });
+  const giga = createGigaChatModel(options);
+
+  if (preferred === "gigachat") {
+    return [...(giga ? [giga] : []), ...compatible];
+  }
+
+  return [...compatible, ...(giga ? [giga] : [])];
 }
+
+export { hasGigaChatKey, createGigaChatModel };

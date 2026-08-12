@@ -312,4 +312,216 @@ describe("answerDeterministically", () => {
     expect(max?.answer).toMatch(/9/);
     expect(max?.answer).not.toMatch(/одинаковый максимум/i);
   });
+
+  it("answers metric sum for concrete day phrasing", () => {
+    const bugsFixture = {
+      name: "bugs.csv",
+      kind: "csv" as const,
+      content: "x",
+      headers: ["День", "Создано", "Баги"],
+      rows: [
+        ["Понедельник", 24, 4],
+        ["Вторник", 32, 9],
+        ["Среда", 27, 6],
+      ],
+      stats: { rows: 3, columns: 3, characters: 1 },
+    };
+
+    const result = answerDeterministically(
+      bugsFixture,
+      "Сколько багов во вторник?",
+    );
+    expect(result?.answer).toMatch(/9/);
+    expect(result?.answer).toMatch(/вторник/i);
+    expect(result?.answer).not.toMatch(/уточните показатель|Информация отсутствует/i);
+  });
+
+  it("prefers drink category over date for popularity questions", () => {
+    const drinksFixture = {
+      name: "drinks.csv",
+      kind: "csv" as const,
+      content: "x",
+      headers: ["Дата", "Напиток", "Количество"],
+      rows: [
+        ["06.08.2026", "Капучино", 2],
+        ["06.08.2026", "Эспрессо", 1],
+        ["08.08.2026", "Капучино", 3],
+        ["09.08.2026", "Латте", 2],
+        ["13.08.2026", "Капучино", 1],
+      ],
+      stats: { rows: 5, columns: 3, characters: 1 },
+    };
+
+    const result = answerDeterministically(
+      drinksFixture,
+      "Какие напитки покупают чаще всего?",
+    );
+    expect(result?.answer).toMatch(/Напиток/);
+    expect(result?.answer).toMatch(/Капучино/);
+    expect(result?.answer).not.toMatch(/Дата/);
+  });
+
+  it("treats 'непопулярный напиток' as least popular", () => {
+    const drinksFixture = {
+      name: "drinks.csv",
+      kind: "csv" as const,
+      content: "x",
+      headers: ["Дата", "Напиток", "Количество"],
+      rows: [
+        ["06.08.2026", "Капучино", 2],
+        ["06.08.2026", "Эспрессо", 1],
+        ["08.08.2026", "Капучино", 3],
+        ["09.08.2026", "Латте", 2],
+        ["13.08.2026", "Капучино", 1],
+      ],
+      stats: { rows: 5, columns: 3, characters: 1 },
+    };
+
+    const result = answerDeterministically(
+      drinksFixture,
+      "Какой непопулярный напиток?",
+    );
+    expect(result?.answer).toMatch(/меньше всего/i);
+    expect(result?.answer).toMatch(/Эспрессо/);
+    expect(result?.answer).toMatch(/Количество/);
+    expect(result?.answer).not.toMatch(/Самый популярный/i);
+  });
+
+  it("treats 'не популярный напиток' as least popular", () => {
+    const drinksFixture = {
+      name: "drinks.csv",
+      kind: "csv" as const,
+      content: "x",
+      headers: ["Дата", "Напиток", "Количество"],
+      rows: [
+        ["06.08.2026", "Капучино", 2],
+        ["06.08.2026", "Эспрессо", 1],
+        ["08.08.2026", "Капучино", 3],
+        ["09.08.2026", "Латте", 2],
+        ["13.08.2026", "Капучино", 1],
+      ],
+      stats: { rows: 5, columns: 3, characters: 1 },
+    };
+
+    const result = answerDeterministically(
+      drinksFixture,
+      "какой напиток не популярный?",
+    );
+    expect(result?.answer).toMatch(/меньше всего/i);
+    expect(result?.answer).toMatch(/Эспрессо/);
+    expect(result?.answer).not.toMatch(/Самый популярный/i);
+  });
+
+  it("maps completed tasks question to 'Закрыто' in Jira-like report", () => {
+    const jiraFixture = {
+      name: "jira-week-32.csv",
+      kind: "csv" as const,
+      content: "x",
+      headers: ["День", "Создано", "Закрыто", "На ревью", "Cycle time, ч", "Баги"],
+      rows: [
+        ["Понедельник", 24, 18, 8, 31, 4],
+        ["Вторник", 32, 17, 19, 46, 9],
+        ["Среда", 27, 23, 15, 39, 6],
+        ["Четверг", 21, 25, 9, 29, 3],
+        ["Пятница", 18, 22, 7, 27, 2],
+      ],
+      stats: { rows: 5, columns: 6, characters: 1 },
+    };
+
+    const result = answerDeterministically(
+      jiraFixture,
+      "Сколько задач выполнено?",
+    );
+    expect(result?.answer).toMatch(/Закрыто/);
+    expect(result?.answer).toMatch(/105/);
+    expect(result?.answer).not.toMatch(/Информация отсутствует|Не удалось однозначно/i);
+  });
+
+  it("maps 'исполнено' the same way as 'выполнено' for closed tasks", () => {
+    const jiraFixture = {
+      name: "jira-week-32.csv",
+      kind: "csv" as const,
+      content: "x",
+      headers: ["День", "Создано", "Закрыто", "На ревью", "Cycle time, ч", "Баги"],
+      rows: [
+        ["Понедельник", 24, 18, 8, 31, 4],
+        ["Вторник", 32, 17, 19, 46, 9],
+        ["Среда", 27, 23, 15, 39, 6],
+      ],
+      stats: { rows: 3, columns: 6, characters: 1 },
+    };
+
+    const result = answerDeterministically(
+      jiraFixture,
+      "Сколько задач исполнено?",
+    );
+    expect(result?.answer).toMatch(/Закрыто/);
+    expect(result?.answer).toMatch(/58/);
+  });
+
+  it("answers pending tasks as created minus closed", () => {
+    const jiraFixture = {
+      name: "jira-week-32.csv",
+      kind: "csv" as const,
+      content: "x",
+      headers: ["День", "Создано", "Закрыто", "На ревью", "Cycle time, ч", "Баги"],
+      rows: [
+        ["Понедельник", 24, 18, 8, 31, 4],
+        ["Вторник", 32, 17, 19, 46, 9],
+        ["Среда", 27, 23, 15, 39, 6],
+        ["Четверг", 21, 25, 9, 29, 3],
+        ["Пятница", 18, 22, 7, 27, 2],
+      ],
+      stats: { rows: 5, columns: 6, characters: 1 },
+    };
+
+    const pending = answerDeterministically(
+      jiraFixture,
+      "сколько задач не выполнено?",
+    );
+    expect(pending?.answer).toMatch(/Не выполнено/);
+    expect(pending?.answer).toMatch(/17/);
+    expect(pending?.answer).not.toMatch(/Сумма по показателю «Закрыто»/);
+
+    const notClosed = answerDeterministically(
+      jiraFixture,
+      "Сколько задач не закрыто?",
+    );
+    expect(notClosed?.answer).toMatch(/17/);
+    expect(notClosed?.answer).not.toMatch(/Сумма по показателю «Закрыто» — 105/);
+  });
+
+  it("ranks popular cars by brand, not by status", () => {
+    const carsFixture = {
+      name: "cars.csv",
+      kind: "csv" as const,
+      content: "x",
+      headers: ["Дата", "Марка", "Модель", "Статус", "Цена", "Пробег", "Год", "Город"],
+      rows: [
+        ["2026-01-01", "Toyota", "Camry", "Продан", 1_200_000, 40_000, 2018, "Москва"],
+        ["2026-01-02", "Toyota", "RAV4", "Продан", 1_500_000, 30_000, 2019, "Москва"],
+        ["2026-01-03", "BMW", "X5", "Продан", 3_000_000, 20_000, 2020, "СПб"],
+        ["2026-01-04", "Toyota", "Camry", "В наличии", 1_100_000, 50_000, 2017, "Казань"],
+        ["2026-01-05", "Audi", "A6", "Возврат", 2_200_000, 60_000, 2016, "Москва"],
+        ["2026-01-06", "BMW", "X3", "Продан", 2_500_000, 25_000, 2021, "Москва"],
+      ],
+      stats: { rows: 6, columns: 8, characters: 1 },
+    };
+
+    const most = answerDeterministically(
+      carsFixture,
+      "Какая машина самая популярная?",
+    );
+    expect(most?.answer).toMatch(/Марка|Модель/);
+    expect(most?.answer).toMatch(/Toyota/);
+    expect(most?.answer).not.toMatch(/Статус|Продан/);
+
+    const least = answerDeterministically(
+      carsFixture,
+      "Какая машина самая не популярная?",
+    );
+    expect(least?.answer).toMatch(/Марка|Модель/);
+    expect(least?.answer).toMatch(/Audi/);
+    expect(least?.answer).not.toMatch(/Статус|Возврат|Самый популярный/i);
+  });
 });

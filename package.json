@@ -16,6 +16,7 @@
     "@langchain/langgraph": "^1.4.9",
     "@langchain/openai": "^1.5.6",
     "clsx": "^2.1.1",
+    "langchain-gigachat": "^0.0.18",
     "lucide-react": "^1.31.0",
     "motion": "^13.1.0",
     "next": "^16.3.0",

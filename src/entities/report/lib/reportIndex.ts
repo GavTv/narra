@@ -60,6 +60,42 @@ function categoricalDistributions(source: DataSource) {
   return blocks;
 }
 
+function toNumericCell(value: unknown) {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed || /[a-zа-яё]/i.test(trimmed)) return null;
+  const normalized = trimmed.replace(/\s/g, "").replace(",", ".");
+  if (!/^-?\d+(?:\.\d+)?$/.test(normalized)) return null;
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function numericTotals(source: DataSource) {
+  if (!source.headers.length || !source.rows.length) return [];
+
+  const lines: string[] = [];
+  for (let columnIndex = 0; columnIndex < source.headers.length; columnIndex += 1) {
+    if (!isLikelyMetricColumn(source, columnIndex)) continue;
+    const header = source.headers[columnIndex];
+    if (/год|year|выпуск|рейтинг|rating|id\b/i.test(header)) continue;
+
+    const values = source.rows
+      .map((row) => toNumericCell(row[columnIndex]))
+      .filter((value): value is number => value !== null);
+    if (values.length < source.rows.length * 0.6) continue;
+
+    const sum = values.reduce((total, value) => total + value, 0);
+    const avg = sum / values.length;
+    const min = Math.min(...values);
+    const max = Math.max(...values);
+    lines.push(
+      `${header}: сумма ${sum}, среднее ${Number(avg.toFixed(2))}, мин ${min}, макс ${max} (по ${values.length} значениям)`,
+    );
+  }
+  return lines;
+}
+
 function schemaText(source: DataSource) {
   if (!source.headers.length) {
     return [
@@ -76,6 +112,12 @@ function schemaText(source: DataSource) {
     `Колонок: ${source.stats.columns}`,
     `Колонки: ${source.headers.join(", ")}`,
   ];
+
+  const totals = numericTotals(source);
+  if (totals.length) {
+    lines.push("Итоги по числовым колонкам (полный файл, уже посчитано):");
+    lines.push(...totals);
+  }
 
   const distributions = categoricalDistributions(source);
   if (distributions.length) {

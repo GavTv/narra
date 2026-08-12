@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { analyzeLocally, withReportOverview } from "@/entities/report";
+import { sampleData } from "@/entities/report/model/sampleData";
 import { carSalesFixture, realtyFixture, salesFixture } from "@/test/fixtures";
 
 describe("analyzeLocally metrics", () => {
@@ -93,6 +94,38 @@ describe("analyzeLocally metrics", () => {
     const analysis = analyzeLocally(salesFixture);
     expect(analysis.summary.split(/(?<=[.!?…])\s+/).length).toBeGreaterThanOrEqual(2);
     expect(analysis.summary).toMatch(/пик|лидер|выгрузка/i);
+  });
+
+  it("adds clearer context for operational metrics", () => {
+    const jiraLike = {
+      name: "jira.csv",
+      kind: "csv" as const,
+      content: "x",
+      headers: ["День", "Создано", "Закрыто", "На ревью", "Cycle time, ч", "Баги"],
+      rows: [
+        ["Понедельник", 24, 18, 8, 31, 4],
+        ["Вторник", 32, 17, 19, 46, 9],
+        ["Среда", 27, 23, 15, 39, 6],
+        ["Четверг", 21, 25, 9, 29, 3],
+        ["Пятница", 18, 22, 7, 27, 2],
+      ],
+      stats: { rows: 5, columns: 6, characters: 1 },
+    };
+
+    const analysis = analyzeLocally(jiraLike);
+    expect(analysis.summary).toMatch(/создано/i);
+    expect(analysis.summary).toMatch(/задач/i);
+    expect(analysis.summary).toMatch(/Закрыто|На ревью|Баги/i);
+  });
+
+  it("uses a fixed polished narrative for jira demo", () => {
+    const analysis = analyzeLocally(sampleData);
+    expect(analysis.summary).toContain("Выгрузка по Jira за неделю");
+    expect(analysis.summary).toContain("Максимум созданных задач — 32");
+    expect(analysis.summary).toContain("Cycle time (ч) и Баги");
+    expect(analysis.charts.some((chart) => chart.title === "Выполнено vs не выполнено")).toBe(
+      true,
+    );
   });
 
   it("replaces AI year charts when sanitizing overview", () => {

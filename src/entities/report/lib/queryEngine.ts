@@ -20,7 +20,7 @@ type CategoryColumn = {
 };
 
 function isNonMetricColumn(name: string) {
-  return /кандидат|candidate|сотрудник|employee|клиент|customer|имя|фио|\bname\b|email|телефон|phone|\bid\b|uuid|user|год|year|выпуск|рейтинг|rating|площад|area|м²|м2|комнат|rooms?|этаж|floor/i.test(
+  return /кандидат|candidate|сотрудник|employee|клиент|customer|имя|фио|\bname\b|email|телефон|phone|\bid\b|uuid|user|год|year|выпуск|рейтинг|rating|площад|area|м²|м2|комнат|rooms?|этаж|floor|марка|модел|бренд|brand|статус|status|этап|stage/i.test(
     name,
   );
 }
@@ -115,7 +115,7 @@ function isMonthQuestion(question: string) {
 function isTemporalQuestion(question: string) {
   return (
     isMonthQuestion(question) ||
-    /когда|в\s+какой\s+день|по\s+дням|по\s+датам|за\s+какой\s+день|в\s+какую\s+дат|квартал/i.test(
+    /когда|в\s+какой\s+день|по\s+дням|по\s+датам|за\s+какой\s+день|в\s+какую\s+дат|квартал|понедельник|вторник|среда|четверг|пятниц|суббот|воскресен/i.test(
       question,
     )
   );
@@ -267,12 +267,84 @@ function headerAliases(header: string) {
   if (/баг|ошиб|дефект|issue|bug/i.test(normalized)) {
     aliases.push(
       "баг",
+      "бага",
+      "багов",
+      "багу",
       "баги",
       "ошибка",
       "ошибки",
       "дефект",
       "issue",
       "bug",
+    );
+  }
+  if (/закрыт|closed|done|resolved|выполн|исполн|complete/i.test(normalized)) {
+    aliases.push(
+      "закрыто",
+      "закрытые",
+      "выполнено",
+      "выполненные",
+      "исполнено",
+      "исполненные",
+      "исполнил",
+      "завершено",
+      "сделано",
+      "готово",
+      "resolved",
+      "closed",
+      "done",
+      "completed",
+      "задач",
+      "задача",
+      "task",
+      "tasks",
+    );
+  }
+  if (/создан|created|new|incoming/i.test(normalized)) {
+    aliases.push(
+      "создано",
+      "созданные",
+      "новые",
+      "новых",
+      "created",
+      "new",
+      "incoming",
+      "задач",
+      "задача",
+      "task",
+      "tasks",
+    );
+  }
+  if (/ревью|review|qa|проверк/i.test(normalized)) {
+    aliases.push(
+      "на ревью",
+      "ревью",
+      "проверка",
+      "review",
+      "qa",
+      "задач",
+      "задача",
+      "task",
+      "tasks",
+    );
+  }
+  if (/напит|drink|beverage/i.test(normalized)) {
+    aliases.push("напиток", "напитки", "кофе", "чай", "drink", "beverage");
+  }
+  if (/марка|модел|бренд|brand|автомоб|машин|car|vehicle|авто\b/i.test(normalized)) {
+    aliases.push(
+      "машина",
+      "машины",
+      "машин",
+      "авто",
+      "автомобиль",
+      "автомобили",
+      "марка",
+      "модель",
+      "бренд",
+      "car",
+      "cars",
+      "vehicle",
     );
   }
 
@@ -364,6 +436,7 @@ function calculateGrouped(
   numeric: NumericColumn,
   category: CategoryColumn,
   operation: Operation,
+  question?: string,
   options?: { bucketByMonth?: boolean },
 ): ChatAnswer | null {
   const groups = new Map<
@@ -396,6 +469,29 @@ function calculateGrouped(
           : sum;
     return { label, value, rowIndexes: group.rowIndexes };
   });
+
+  const normalizedQuestion = (question ?? "")
+    .toLowerCase()
+    .replaceAll("ё", "е");
+  const mentioned = aggregated.find((item) => {
+    const normalizedLabel = item.label.toLowerCase().replaceAll("ё", "е");
+    if (normalizedQuestion.includes(normalizedLabel)) return true;
+    const labelTokens = normalizedLabel.match(/[a-zа-я0-9]{3,}/gi) ?? [];
+    return labelTokens.some((token) => normalizedQuestion.includes(token));
+  });
+
+  if (mentioned && operation !== "max" && operation !== "min") {
+    const opLabel =
+      operation === "average"
+        ? "Среднее"
+        : operation === "count"
+          ? "Количество значений"
+          : "Сумма";
+    return {
+      answer: `${opLabel} «${numeric.name}» для «${category.name}: ${mentioned.label}» — ${formatNumber(mentioned.value)}.`,
+      citations: rowCitations(mentioned.rowIndexes),
+    };
+  }
 
   if (operation === "max" || operation === "min") {
     const target =
@@ -516,11 +612,18 @@ function answerWhereMostByCategory(
   source: DataSource,
   question: string,
 ): ChatAnswer | null {
+  const normalizedQuestion = question.toLowerCase().replaceAll("ё", "е");
+  const asksLeastPopularity =
+    /непопулярн|не\s+популярн|наименее\s+популярн|сам[аыо]?я?\s+не\s+популярн/.test(
+      normalizedQuestion,
+    );
   const asksMost =
+    !asksLeastPopularity &&
     /популярн|чаще\s+всего|больше\s+всего|самый\s+част|наибольшее\s+(?:число|количеств)|в\s+каком[\s\S]{0,48}(?:больше|чаще|наибольш)|(?:какой|какая)\s+(?:район|категор|клуб|день|дата)[\s\S]{0,24}(?:больше|чаще|наибольш)/i.test(
       question,
     );
   const asksLeast =
+    asksLeastPopularity ||
     /меньше\s+всего|реже\s+всего|наименьш|самый\s+редк|в\s+каком[\s\S]{0,48}(?:меньше|реже|наимень)|(?:какой|какая)\s+(?:район|категор|клуб|день|дата)[\s\S]{0,24}(?:меньше|реже|наимень)/i.test(
       question,
     );
@@ -533,10 +636,21 @@ function answerWhereMostByCategory(
   const numeric = numericColumns(source);
   // If question mentions a concrete measurable metric (e.g. "багов", "выручка"),
   // let deterministic numeric/grouped path handle it instead of row-count ranking.
+  const questionTokens = tokenizeForSearch(question);
   const numericHint = selectColumn(numeric, question);
+  const hasExplicitNumericMention = numeric.some(
+    (column) => headerScore(column.name, questionTokens) > 0,
+  );
   const asksEntityCount =
     /объект|запис|строк|кандидат|товар|машин|клуб/i.test(question);
-  if (numericHint && !/тип/i.test(question) && !asksEntityCount) return null;
+  if (
+    numericHint &&
+    hasExplicitNumericMention &&
+    !/тип/i.test(question) &&
+    !asksEntityCount
+  ) {
+    return null;
+  }
 
   const categories = categoryColumns(source, numeric);
   if (!categories.length) return null;
@@ -553,12 +667,40 @@ function answerWhereMostByCategory(
       ) ?? null
     : null;
 
+  const asksAboutEntity =
+    /машин|авто|car|vehicle|товар|продукт|напит|drink|клуб|бренд|марк|модел/i.test(
+      question,
+    );
+  const isStatusLike = (name: string) =>
+    /статус|status|этап|stage|state|состоян/i.test(name);
+  const isEntityLike = (name: string) =>
+    /марка|модел|бренд|brand|авто|машин|car|товар|product|напит|drink|клуб|филиал|район|город|канал/i.test(
+      name,
+    );
+
+  const selectedByQuestion = selectColumn(categories, question);
+  const preferredEntity =
+    asksAboutEntity
+      ? categories.find((column) => isEntityLike(column.name)) ?? null
+      : null;
+
   const groupColumn =
     temporalColumn ??
-    selectColumn(categories, question) ??
+    (selectedByQuestion &&
+    !(asksAboutEntity && isStatusLike(selectedByQuestion.name))
+      ? selectedByQuestion
+      : null) ??
+    preferredEntity ??
     (() => {
       const inferred = inferBestCategoryIndex(source, {
-        excludeIndexes: numeric.map((column) => column.index),
+        excludeIndexes: [
+          ...numeric.map((column) => column.index),
+          ...(asksAboutEntity
+            ? categories
+                .filter((column) => isStatusLike(column.name))
+                .map((column) => column.index)
+            : []),
+        ],
         question,
       });
       return inferred >= 0
@@ -566,7 +708,7 @@ function answerWhereMostByCategory(
         : null;
     })() ??
     categories.find((column) =>
-      /район|город|регион|канал|категор|сегмент|источник|source|марка|бренд|клуб|филиал|локац|площадк|тренер|gym|club/i.test(
+      /район|город|регион|канал|категор|сегмент|источник|source|марка|бренд|клуб|филиал|локац|площадк|тренер|gym|club|напит|drink|beverage/i.test(
         column.name,
       ),
     ) ??
@@ -587,8 +729,18 @@ function answerWhereMostByCategory(
 
   const groups = new Map<
     string,
-    { rowIndexes: number[]; distinct: Set<string> }
+    { rowIndexes: number[]; distinct: Set<string>; metricValues: number[] }
   >();
+
+  const popularityByMetric =
+    /покуп|продаж|заказ|количеств|штук|чаш/i.test(question) ||
+    /популярн|непопулярн|не\s+популярн/.test(normalizedQuestion);
+  const selectedMetric =
+    numeric.find((column) =>
+      /колич|кол-?во|count|qty|quantity|продаж|sales|orders?/i.test(column.name),
+    ) ??
+    (popularityByMetric ? null : selectColumn(numeric, question)) ??
+    null;
 
   for (let rowIndex = 0; rowIndex < source.rows.length; rowIndex += 1) {
     const label = formatCell(source.rows[rowIndex]?.[groupColumn.index]).trim();
@@ -596,8 +748,13 @@ function answerWhereMostByCategory(
     const group = groups.get(label) ?? {
       rowIndexes: [],
       distinct: new Set<string>(),
+      metricValues: [],
     };
     group.rowIndexes.push(rowIndex);
+    if (selectedMetric) {
+      const metricValue = toNumber(source.rows[rowIndex]?.[selectedMetric.index]);
+      if (metricValue !== null) group.metricValues.push(metricValue);
+    }
     if (typeColumn) {
       const typeValue = formatCell(
         source.rows[rowIndex]?.[typeColumn.index],
@@ -611,7 +768,11 @@ function answerWhereMostByCategory(
 
   const ranked = [...groups.entries()].map(([label, group]) => ({
     label,
-    value: countDistinctTypes ? group.distinct.size : group.rowIndexes.length,
+    value: countDistinctTypes
+      ? group.distinct.size
+      : popularityByMetric && selectedMetric
+        ? group.metricValues.reduce((sum, item) => sum + item, 0)
+        : group.rowIndexes.length,
     rowIndexes: group.rowIndexes,
   }));
   const target = asksLeast
@@ -629,23 +790,68 @@ function answerWhereMostByCategory(
       : winners[0].value < 5
         ? "записи"
         : "записей";
+  const metricUnit =
+    popularityByMetric && selectedMetric
+      ? `по «${selectedMetric.name}»`
+      : null;
 
   if (winners.length === 1) {
     return {
-      answer: /популярн/i.test(question)
-        ? `Самый популярный «${groupColumn.name}» — «${winners[0].label}»: ${formatNumber(winners[0].value)} ${unit}.`
+      answer: !asksLeast && /популярн/i.test(question)
+        ? `Самый популярный «${groupColumn.name}» — «${winners[0].label}»: ${formatNumber(winners[0].value)} ${metricUnit ?? unit}.`
         : asksLeast
-          ? `По «${groupColumn.name}» меньше всего у «${winners[0].label}»: ${formatNumber(winners[0].value)} ${unit}.`
-        : `В «${groupColumn.name}» лидирует «${winners[0].label}»: ${formatNumber(winners[0].value)} ${unit}.`,
+          ? `По «${groupColumn.name}» меньше всего у «${winners[0].label}»: ${formatNumber(winners[0].value)} ${metricUnit ?? unit}.`
+        : `В «${groupColumn.name}» лидирует «${winners[0].label}»: ${formatNumber(winners[0].value)} ${metricUnit ?? unit}.`,
       citations: rowCitations(winners[0].rowIndexes),
     };
   }
 
   return {
-    answer: `По «${groupColumn.name}» одинаковый ${asksLeast ? "минимум" : "максимум"} у нескольких значений (${formatNumber(target)} ${unit}):\n${winners
+    answer: `По «${groupColumn.name}» одинаковый ${asksLeast ? "минимум" : "максимум"} у нескольких значений (${formatNumber(target)} ${metricUnit ?? unit}):\n${winners
       .map((item) => `• «${item.label}»`)
       .join("\n")}`,
     citations: rowCitations(winners.flatMap((item) => item.rowIndexes)),
+  };
+}
+
+function findCreatedClosedColumns(numeric: NumericColumn[]) {
+  const created =
+    numeric.find((column) =>
+      /создан|created|new|incoming/i.test(column.name),
+    ) ?? null;
+  const closed =
+    numeric.find((column) =>
+      /закрыт|closed|done|resolved|выполн|исполн|complete/i.test(column.name),
+    ) ?? null;
+  return created && closed ? { created, closed } : null;
+}
+
+function answerPendingTasks(
+  source: DataSource,
+  question: string,
+): ChatAnswer | null {
+  const asksPending =
+    /не\s+(?:было\s+)?(?:выполн|закрыт|заверш|сделан|готов)|неисполн|незакрыт|остал|pending|incomplete|open\s+task/i.test(
+      question,
+    );
+  if (!asksPending) return null;
+
+  const pair = findCreatedClosedColumns(numericColumns(source));
+  if (!pair) return null;
+
+  const createdSum = pair.created.values.reduce(
+    (total, item) => total + item.value,
+    0,
+  );
+  const closedSum = pair.closed.values.reduce(
+    (total, item) => total + item.value,
+    0,
+  );
+  const pending = Math.max(0, createdSum - closedSum);
+
+  return {
+    answer: `Не выполнено ${formatNumber(pending)} задач (создано ${formatNumber(createdSum)} − закрыто ${formatNumber(closedSum)}).`,
+    citations: allRowsCitation(source),
   };
 }
 
@@ -672,6 +878,9 @@ export function answerDeterministically(
       citations: [{ id: "schema", label: "Структура отчёта" }],
     };
   }
+
+  const pendingTasks = answerPendingTasks(source, question);
+  if (pendingTasks) return pendingTasks;
 
   const categoryCount = answerTotalEntityCount(source, question);
   if (categoryCount) return categoryCount;
@@ -735,12 +944,25 @@ export function answerDeterministically(
     : null;
   const selectedCategory =
     temporalCategory ?? selectColumn(categories, question);
+  const mentionsConcreteTemporalValue =
+    /понедельник|вторник|среда|четверг|пятниц|суббот|воскресен|январ|феврал|март|апрел|ма[йя]|июн|июл|август|сентябр|октябр|ноябр|декабр|\d{1,2}[./-]\d{1,2}(?:[./-]\d{2,4})?|\d{4}[./-]\d{1,2}(?:[./-]\d{1,2})?/i.test(
+      question,
+    );
   const asksForGrouping =
     Boolean(temporalCategory) ||
     monthQuestion ||
+    mentionsConcreteTemporalValue ||
     /\bпо\b|в\s+каком|како[а-яё]*\s+(?:категор|товар|канал|день|месяц|дат|район|город)/i.test(
       question,
     );
+
+  if (
+    operation === "count" &&
+    /сколько/i.test(question) &&
+    !/сколько\s+(?:строк|запис|значени|раз|штук)/i.test(question)
+  ) {
+    operation = "sum";
+  }
 
   if (selectedCategory && asksForGrouping) {
     const grouped = calculateGrouped(
@@ -748,6 +970,7 @@ export function answerDeterministically(
       selectedNumeric,
       selectedCategory,
       operation,
+      question,
       {
         bucketByMonth:
           monthQuestion &&

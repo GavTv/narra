@@ -93,11 +93,19 @@ export function inferBestCategoryIndex(
     let score = 0;
     if (isDateHeader(header)) score += 12;
     if (
-      /товар|product|item|категор|region|регион|район|город|канал|source|бренд|марка|клуб|филиал|тип|статус|этап/i.test(
+      /товар|product|item|категор|region|регион|район|город|канал|source|бренд|марка|модел|авто|машин|клуб|филиал/i.test(
         header,
       )
     ) {
-      score += 8;
+      score += 10;
+    }
+    if (/тип|статус|этап|status|stage/i.test(header)) {
+      score += tokens &&
+        [...tokens].some((token) =>
+          /статус|status|этап|stage|состоян/.test(token),
+        )
+        ? 8
+        : 2;
     }
     if (distinct.size >= 2 && distinct.size <= 20) score += 6;
     if (distinct.size > 20 && distinct.size <= 80) score += 2;
@@ -105,6 +113,18 @@ export function inferBestCategoryIndex(
     if (tokens) {
       const headerTokens = header.toLowerCase().match(/[a-zа-яё0-9]{3,}/gi) ?? [];
       score += headerTokens.reduce((acc, token) => acc + Number(tokens.has(token)) * 5, 0);
+      if (
+        [...tokens].some((token) => /машин|авто|car|товар|напит/.test(token)) &&
+        /статус|status|этап|stage/i.test(header)
+      ) {
+        score -= 12;
+      }
+      if (
+        [...tokens].some((token) => /машин|авто|car/.test(token)) &&
+        /марка|модел|бренд|авто|машин/i.test(header)
+      ) {
+        score += 12;
+      }
     }
 
     score -= distinctRatio * 3;

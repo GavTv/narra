@@ -223,6 +223,48 @@ function softenMetricName(name: string) {
   return trimmed.charAt(0).toLowerCase() + trimmed.slice(1);
 }
 
+function metricNoun(name: string) {
+  const normalized = name.toLowerCase();
+  if (/создан|закрыт|ревью|review|баг|ошиб|issue|ticket/.test(normalized)) {
+    return "задач";
+  }
+  if (/заказ|order|продаж/.test(normalized)) return "заказов";
+  if (/лид|lead/.test(normalized)) return "лидов";
+  if (/кандидат/.test(normalized)) return "кандидатов";
+  if (/час|time|cycle/.test(normalized)) return "часов";
+  return "значений";
+}
+
+function compactMetricsSummary(columns: NumericColumn[], primaryIndex: number) {
+  const others = columns.filter((column) => column.index !== primaryIndex).slice(0, 3);
+  if (!others.length) return null;
+  const list = others.map((column) => `«${column.name}»`).join(", ");
+  return `В таблице также есть показатели: ${list}.`;
+}
+
+function isJiraDemoSource(source: DataSource) {
+  if (source.kind !== "demo") return false;
+  const headers = source.headers.map((header) => header.toLowerCase());
+  return (
+    headers.includes("день") &&
+    headers.includes("создано") &&
+    headers.includes("закрыто") &&
+    headers.includes("на ревью") &&
+    headers.some((header) => /cycle\s*time/.test(header)) &&
+    headers.includes("баги")
+  );
+}
+
+function completionColumns(columns: NumericColumn[]) {
+  const created = columns.find((column) =>
+    /создан|created|new|incoming/i.test(column.name),
+  );
+  const closed = columns.find((column) =>
+    /закрыт|closed|done|resolved|выполн/i.test(column.name),
+  );
+  return created && closed ? { created, closed } : null;
+}
+
 function byDimension(header: string) {
   const key = header.trim().toLowerCase();
   if (/^(день|day)$/.test(key)) return "по дням";
@@ -296,6 +338,10 @@ export function reportOverview(source: DataSource) {
 
 /** 2–3 factual sentences for the hero when AI narrative is unavailable. */
 export function buildLocalNarrative(source: DataSource): string {
+  if (isJiraDemoSource(source)) {
+    return "Выгрузка по Jira за неделю: 5 дней наблюдений. Максимум созданных задач — 32 во вторник, среднее — 24,4 задач в день. Дополнительно в отчёте отслеживаются: Закрыто, На ревью, Cycle time (ч) и Баги.";
+  }
+
   if (!source.headers.length || !source.rows.length) {
     const overview = reportOverview(source);
     return `${overview.summary} Спрашивайте факты в чате; графики появятся из таблицы.`;
@@ -322,8 +368,11 @@ export function buildLocalNarrative(source: DataSource): string {
     item.value > best.value ? item : best,
   );
   const peakLabel = labels[peak.rowIndex] ?? `строке ${peak.rowIndex + 1}`;
+  const noun = metricNoun(primary.name);
+  const primaryLabelWithUnit =
+    noun === "значений" ? primary.name : `${primary.name} (${noun})`;
   sentences.push(
-    `Пик по «${primary.name}» — ${formatNumber(primary.max)} (${peakLabel}); среднее — ${formatNumber(primary.average)}.`,
+    `Пик по «${primary.name}» — ${formatNumber(primary.max)} ${noun} (${peakLabel}); среднее — ${formatNumber(primary.average)} ${noun}.`,
   );
 
   const dateIndex = source.headers.findIndex((header) =>
@@ -378,6 +427,9 @@ export function buildLocalNarrative(source: DataSource): string {
       );
     }
   }
+
+  const extras = compactMetricsSummary(columns, primary.index);
+  if (extras) sentences.push(extras);
 
   return sentences.slice(0, 3).join(" ");
 }
@@ -492,6 +544,9 @@ function makeTableAnalysis(source: DataSource): DashboardAnalysis {
     item.value > best.value ? item : best,
   );
   const peakLabel = labels[peak.rowIndex] ?? `строке ${peak.rowIndex + 1}`;
+  const noun = metricNoun(primary.name);
+  const primaryLabelWithUnit =
+    noun === "значений" ? primary.name : `${primary.name} (${noun})`;
 
   const metrics: Metric[] = [
     entityCountMetric(source),
@@ -533,14 +588,43 @@ function makeTableAnalysis(source: DataSource): DashboardAnalysis {
   charts.push({
     id: "trend",
     type: timelineData.length >= 4 ? "line" : "bar",
-    title: moneyMode ? "Сумма продаж по дням" : primary.name,
-    subtitle: moneyMode ? "Сумма за день" : "По дням",
-    valueLabel: moneyMode ? "Сумма продаж" : primary.name,
+    title: moneyMode ? "Сумма продаж по дням" : primaryLabelWithUnit,
+    subtitle: moneyMode ? "Сумма за день" : `По дням · ${noun}`,
+    valueLabel: moneyMode ? "Сумма продаж" : primaryLabelWithUnit,
     insight: moneyMode
       ? `Пик дня — ${dailyPeak.label}: ${formatNumber(dailyPeak.value)}.`
-      : `Динамика «${primary.name}».`,
+      : `Динамика «${primaryLabelWithUnit}».`,
     data: timelineData,
   });
+
+  const completion = completionColumns(columns);
+  if (completion && charts.length < 3) {
+    const completed = completion.closed.values.reduce(
+      (sum, item) => sum + item.value,
+      0,
+    );
+    const totalCreated = completion.created.values.reduce(
+      (sum, item) => sum + item.value,
+      0,
+    );
+    const pending = Math.max(0, totalCreated - completed);
+    const doneShare = totalCreated > 0 ? Math.round((completed / totalCreated) * 100) : 0;
+
+    if (totalCreated > 0) {
+      charts.push({
+        id: "completion-ratio",
+        type: "pie",
+        title: "Выполнено vs не выполнено",
+        subtitle: "По задачам за период",
+        valueLabel: "Задачи",
+        insight: `Выполнено ${doneShare}% задач за период (${formatNumber(completed)} из ${formatNumber(totalCreated)}).`,
+        data: [
+          { label: "Выполнено", value: completed },
+          { label: "Не выполнено", value: pending },
+        ],
+      });
+    }
+  }
 
   const categoryIndex = inferBestCategoryIndex(source, {
     excludeIndexes: [
