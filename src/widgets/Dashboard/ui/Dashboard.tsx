@@ -9,7 +9,7 @@ import { motion } from "motion/react";
 
 import type { DashboardAnalysis, Metric } from "@/entities/analysis";
 import type { DataSource } from "@/entities/report";
-import { sourceKindLabel } from "@/entities/report";
+import { sampleDataFootnote, sourceKindLabel } from "@/entities/report";
 import { ReportChat } from "@/widgets/ReportChat";
 
 import { ChartCard } from "./ChartCard";
@@ -77,6 +77,20 @@ export function Dashboard({ source, analysis }: DashboardProps) {
           <p className="mt-3 max-w-3xl text-base leading-7 text-[var(--muted)]">
             {analysis.summary}
           </p>
+
+          {source.kind === "demo" ? (
+            <p className="mt-4 max-w-3xl border-t border-[var(--line)]/70 pt-4 text-xs leading-5 text-[var(--muted)]">
+              <span className="font-semibold text-[var(--steel)]">
+                Демо · {sampleDataFootnote.title}.
+              </span>{" "}
+              {sampleDataFootnote.about} Спросите, например:{" "}
+              {sampleDataFootnote.askExamples.map((question, index) => (
+                <span key={question}>
+                  {index > 0 ? " · " : ""}«{question}»
+                </span>
+              ))}
+            </p>
+          ) : null}
         </div>
       </motion.header>
 

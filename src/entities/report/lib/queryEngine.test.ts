@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { answerDeterministically } from "@/entities/report";
 import {
+  carSalesFixture,
   hiringFixture,
   marketingFixture,
   multiMonthSalesFixture,
@@ -258,5 +259,57 @@ describe("answerDeterministically", () => {
     expect(result?.answer).toMatch(/Центр/);
     expect(result?.answer).toMatch(/тип/i);
     expect(result?.answer).not.toMatch(/Сумма по показателю/);
+  });
+
+  it("answers day with most and least sold cars", () => {
+    const most = answerDeterministically(
+      carSalesFixture,
+      "В какой день было продано больше всего машин?",
+    );
+    expect(most?.answer).toMatch(/Дата|день/i);
+    expect(most?.answer).toMatch(/2026-07-01|01\.07\.2026/);
+    expect(most?.answer).toMatch(/2/);
+
+    const least = answerDeterministically(
+      carSalesFixture,
+      "В какой день было продано меньше всего машин?",
+    );
+    expect(least?.answer).toMatch(/Дата|день/i);
+    expect(least?.answer).toMatch(/2026-07-15|2026-07-31|15\.07\.2026|31\.07\.2026/);
+    expect(least?.answer).toMatch(/1/);
+    expect(least?.answer).not.toMatch(/Информация отсутствует/i);
+  });
+
+  it("answers min/max by day using metric values, not row count", () => {
+    const bugsFixture = {
+      name: "bugs.csv",
+      kind: "csv" as const,
+      content: "x",
+      headers: ["День", "Баги"],
+      rows: [
+        ["Понедельник", 4],
+        ["Вторник", 9],
+        ["Среда", 6],
+        ["Четверг", 3],
+        ["Пятница", 2],
+      ],
+      stats: { rows: 5, columns: 2, characters: 1 },
+    };
+
+    const min = answerDeterministically(
+      bugsFixture,
+      "В какой из дней меньше всего было багов?",
+    );
+    expect(min?.answer).toMatch(/Пятниц/);
+    expect(min?.answer).toMatch(/2/);
+    expect(min?.answer).not.toMatch(/одинаковый минимум/i);
+
+    const max = answerDeterministically(
+      bugsFixture,
+      "А в какой из дней было больше всего багов?",
+    );
+    expect(max?.answer).toMatch(/Вторник/);
+    expect(max?.answer).toMatch(/9/);
+    expect(max?.answer).not.toMatch(/одинаковый максимум/i);
   });
 });

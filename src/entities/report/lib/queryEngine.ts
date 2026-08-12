@@ -2,6 +2,7 @@ import type { ChatAnswer, ChatCitation, ChatTurn } from "@/entities/chat";
 import { formatNumber, toNumber } from "@/shared/lib/format";
 
 import { answerSalesQuestion } from "./localAnalysis";
+import { inferBestCategoryIndex, inferDateColumnIndex } from "./schemaProfile";
 import { tokenizeForSearch } from "./retrieve";
 import type { DataSource } from "../model/types";
 
@@ -73,23 +74,29 @@ function operationFromQuestion(question: string): Operation | null {
     return "min";
   }
   if (
-    /максим|наибольш|сам[а-яё]*\s+(?:больш|высок|прибыльн|доходн|выгодн|дорог)|пик|пиков|прибыльн|доходн|выгодн|дорож|дорог|maximum|max\b|peak|expensive/.test(
+    /максим|наибольш|больше\s+всего|сам[а-яё]*\s+(?:больш|высок|прибыльн|доходн|выгодн|дорог)|пик|пиков|прибыльн|доходн|выгодн|дорож|дорог|maximum|max\b|peak|expensive/.test(
       normalized,
     )
   ) {
     return "max";
   }
   if (
-    /миним|наименьш|сам[а-яё]*\s+(?:мал|низк|дешев)|дешев|minimum|min\b|cheap/.test(
+    /миним|наименьш|сам[а-яё]*\s+(?:мал|низк|дешев)|дешев|меньше\s+всего|реже\s+всего|minimum|min\b|cheap/.test(
       normalized,
     )
   ) {
     return "min";
   }
-  if (/больше\s+всего|чаще\s+всего|наибольшее\s+число/.test(normalized)) {
+  if (/чаще\s+всего|наибольшее\s+число/.test(normalized)) {
     return "count";
   }
-  if (/сумм|итог|(?<!больше\s)всего|total/.test(normalized)) return "sum";
+  if (/сумм|итог|total/.test(normalized)) return "sum";
+  if (
+    /всего/.test(normalized) &&
+    !/(?:больше|меньше|чаще|реже)\s+всего/.test(normalized)
+  ) {
+    return "sum";
+  }
   if (/сколько|количеств|count/.test(normalized)) return "count";
 
   return null;
@@ -122,6 +129,18 @@ function dateLikeColumn(categories: CategoryColumn[]) {
       ),
     ) ?? null
   );
+}
+
+function dateLikeColumnWithProfile(
+  source: DataSource,
+  categories: CategoryColumn[],
+) {
+  const inferred = inferDateColumnIndex(source);
+  if (inferred >= 0) {
+    const hit = categories.find((column) => column.index === inferred);
+    if (hit) return hit;
+  }
+  return dateLikeColumn(categories);
 }
 
 const MONTHS_RU = [
@@ -244,6 +263,17 @@ function headerAliases(header: string) {
   }
   if (/цена|стоим|price|amount|дорог/i.test(normalized)) {
     aliases.push("цена", "стоимость", "price", "дорог", "дороже", "amount");
+  }
+  if (/баг|ошиб|дефект|issue|bug/i.test(normalized)) {
+    aliases.push(
+      "баг",
+      "баги",
+      "ошибка",
+      "ошибки",
+      "дефект",
+      "issue",
+      "bug",
+    );
   }
 
   return aliases.flatMap((alias) => tokenizeForSearch(alias));
@@ -486,21 +516,55 @@ function answerWhereMostByCategory(
   source: DataSource,
   question: string,
 ): ChatAnswer | null {
-  if (
-    !/популярн|чаще\s+всего|больше\s+всего|самый\s+част|наибольшее\s+(?:число|количеств)|в\s+каком[\s\S]{0,48}(?:больше|чаще|наибольш)|(?:какой|какая)\s+(?:район|категор)[\s\S]{0,24}(?:больше|чаще|наибольш)/i.test(
+  const asksMost =
+    /популярн|чаще\s+всего|больше\s+всего|самый\s+част|наибольшее\s+(?:число|количеств)|в\s+каком[\s\S]{0,48}(?:больше|чаще|наибольш)|(?:какой|какая)\s+(?:район|категор|клуб|день|дата)[\s\S]{0,24}(?:больше|чаще|наибольш)/i.test(
       question,
-    )
-  ) {
+    );
+  const asksLeast =
+    /меньше\s+всего|реже\s+всего|наименьш|самый\s+редк|в\s+каком[\s\S]{0,48}(?:меньше|реже|наимень)|(?:какой|какая)\s+(?:район|категор|клуб|день|дата)[\s\S]{0,24}(?:меньше|реже|наимень)/i.test(
+      question,
+    );
+
+  if (!asksMost && !asksLeast) {
     return null;
   }
   if (!source.rows.length || !source.headers.length) return null;
 
   const numeric = numericColumns(source);
+  // If question mentions a concrete measurable metric (e.g. "багов", "выручка"),
+  // let deterministic numeric/grouped path handle it instead of row-count ranking.
+  const numericHint = selectColumn(numeric, question);
+  const asksEntityCount =
+    /объект|запис|строк|кандидат|товар|машин|клуб/i.test(question);
+  if (numericHint && !/тип/i.test(question) && !asksEntityCount) return null;
+
   const categories = categoryColumns(source, numeric);
   if (!categories.length) return null;
 
+  const temporalQuestion =
+    /в\s+какой\s+день|какой\s+день|по\s+дням|по\s+датам|дата|день|когда/i.test(
+      question,
+    );
+  const temporalColumn = temporalQuestion
+    ? categories.find((column) =>
+        /дата|date|день|day|месяц|month|период|period|время|time|week/i.test(
+          column.name,
+        ),
+      ) ?? null
+    : null;
+
   const groupColumn =
+    temporalColumn ??
     selectColumn(categories, question) ??
+    (() => {
+      const inferred = inferBestCategoryIndex(source, {
+        excludeIndexes: numeric.map((column) => column.index),
+        question,
+      });
+      return inferred >= 0
+        ? categories.find((column) => column.index === inferred) ?? null
+        : null;
+    })() ??
     categories.find((column) =>
       /район|город|регион|канал|категор|сегмент|источник|source|марка|бренд|клуб|филиал|локац|площадк|тренер|gym|club/i.test(
         column.name,
@@ -550,8 +614,10 @@ function answerWhereMostByCategory(
     value: countDistinctTypes ? group.distinct.size : group.rowIndexes.length,
     rowIndexes: group.rowIndexes,
   }));
-  const best = Math.max(...ranked.map((item) => item.value));
-  const winners = ranked.filter((item) => item.value === best);
+  const target = asksLeast
+    ? Math.min(...ranked.map((item) => item.value))
+    : Math.max(...ranked.map((item) => item.value));
+  const winners = ranked.filter((item) => item.value === target);
   const unit = countDistinctTypes
     ? winners[0].value === 1
       ? "тип"
@@ -568,13 +634,15 @@ function answerWhereMostByCategory(
     return {
       answer: /популярн/i.test(question)
         ? `Самый популярный «${groupColumn.name}» — «${winners[0].label}»: ${formatNumber(winners[0].value)} ${unit}.`
+        : asksLeast
+          ? `По «${groupColumn.name}» меньше всего у «${winners[0].label}»: ${formatNumber(winners[0].value)} ${unit}.`
         : `В «${groupColumn.name}» лидирует «${winners[0].label}»: ${formatNumber(winners[0].value)} ${unit}.`,
       citations: rowCitations(winners[0].rowIndexes),
     };
   }
 
   return {
-    answer: `По «${groupColumn.name}» одинаковый максимум у нескольких значений (${formatNumber(best)} ${unit}):\n${winners
+    answer: `По «${groupColumn.name}» одинаковый ${asksLeast ? "минимум" : "максимум"} у нескольких значений (${formatNumber(target)} ${unit}):\n${winners
       .map((item) => `• «${item.label}»`)
       .join("\n")}`,
     citations: rowCitations(winners.flatMap((item) => item.rowIndexes)),
@@ -663,7 +731,7 @@ export function answerDeterministically(
   const categories = categoryColumns(source, numeric);
   const monthQuestion = isMonthQuestion(question);
   const temporalCategory = isTemporalQuestion(question)
-    ? dateLikeColumn(categories)
+    ? dateLikeColumnWithProfile(source, categories)
     : null;
   const selectedCategory =
     temporalCategory ?? selectColumn(categories, question);

@@ -7,6 +7,7 @@ import {
   toNumber,
 } from "@/shared/lib/format";
 
+import { inferBestCategoryIndex, inferDateColumnIndex } from "./schemaProfile";
 import type { DataSource } from "../model/types";
 
 type NumericColumn = {
@@ -509,9 +510,7 @@ function makeTableAnalysis(source: DataSource): DashboardAnalysis {
   ];
 
   const charts: ChartSpec[] = [];
-  const dateIndex = source.headers.findIndex((header) =>
-    /дата|date|period|период/i.test(header),
-  );
+  const dateIndex = inferDateColumnIndex(source);
   const moneyMode = isMoneyColumn(primary.name) && dateIndex >= 0;
 
   const timelineSource = primary.values.map((item) => {
@@ -543,14 +542,12 @@ function makeTableAnalysis(source: DataSource): DashboardAnalysis {
     data: timelineData,
   });
 
-  const categoryIndex = source.headers.findIndex(
-    (header, index) =>
-      index !== dateIndex &&
-      !columns.some((column) => column.index === index) &&
-      /тип|категор|район|город|регион|товар|product|канал|source|марка|бренд|segment/i.test(
-        header,
-      ),
-  );
+  const categoryIndex = inferBestCategoryIndex(source, {
+    excludeIndexes: [
+      dateIndex,
+      ...columns.map((column) => column.index),
+    ].filter((index) => index >= 0),
+  });
 
   if (moneyMode && categoryIndex >= 0 && charts.length < 3) {
     const groups = new Map<string, number>();

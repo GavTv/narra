@@ -34,3 +34,15 @@ export const sampleData: DataSource = {
     characters: content.length,
   },
 };
+
+/** Short footnote for the demo CTA only — what the sample holds and what to ask. */
+export const sampleDataFootnote = {
+  title: "Jira — неделя 32",
+  about:
+    "Таблица по дням (пн–пт): создано, закрыто, на ревью, cycle time (ч), баги. Пик ревью и багов — во вторник.",
+  askExamples: [
+    "В какой день больше всего задач на ревью?",
+    "Сколько багов во вторник?",
+    "Какой средний cycle time?",
+  ],
+};

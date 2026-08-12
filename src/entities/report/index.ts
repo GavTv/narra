@@ -4,7 +4,7 @@ export type {
   ReportChunk,
   ReportIndex,
 } from "./model/types";
-export { sampleData } from "./model/sampleData";
+export { sampleData, sampleDataFootnote } from "./model/sampleData";
 export { buildReportIndex } from "./lib/reportIndex";
 export { retrieveChunks, rankChunks } from "./lib/retrieve";
 export { answerDeterministically } from "./lib/queryEngine";
