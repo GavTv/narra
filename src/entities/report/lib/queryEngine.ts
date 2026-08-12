@@ -74,14 +74,14 @@ function operationFromQuestion(question: string): Operation | null {
     return "min";
   }
   if (
-    /максим|наибольш|больше\s+всего|сам[а-яё]*\s+(?:больш|высок|прибыльн|доходн|выгодн|дорог)|пик|пиков|прибыльн|доходн|выгодн|дорож|дорог|maximum|max\b|peak|expensive/.test(
+    /максим|наибольш|больше\s+всего|большого\s+всего|сам[а-яё]*\s+(?:больш|высок|прибыльн|доходн|выгодн|дорог)|пик|пиков|прибыльн|доходн|выгодн|дорож|дорог|maximum|max\b|peak|expensive/.test(
       normalized,
     )
   ) {
     return "max";
   }
   if (
-    /миним|наименьш|сам[а-яё]*\s+(?:мал|низк|дешев)|дешев|меньше\s+всего|реже\s+всего|minimum|min\b|cheap/.test(
+    /миним|наименьш|сам[а-яё]*\s+(?:мал|низк|дешев)|дешев|меньше\s+всего|меньшего\s+всего|реже\s+всего|minimum|min\b|cheap/.test(
       normalized,
     )
   ) {
@@ -90,10 +90,19 @@ function operationFromQuestion(question: string): Operation | null {
   if (/чаще\s+всего|наибольшее\s+число/.test(normalized)) {
     return "count";
   }
-  if (/сумм|итог|total/.test(normalized)) return "sum";
+  if (/сумм|итог|total|общ(?:ая|ий|ее|ую|ие)/.test(normalized)) return "sum";
+  if (
+    /(?:^|[^\p{L}\d])продаж(?:и|а|ам|ами)?(?=[^\p{L}\d]|$)/iu.test(normalized) &&
+    (questionDayMonthKeys(normalized).size > 0 ||
+      /август|январ|феврал|март|апрел|ма[йя]|июн|июл|сентябр|октябр|ноябр|декабр/i.test(
+        normalized,
+      ))
+  ) {
+    return "sum";
+  }
   if (
     /всего/.test(normalized) &&
-    !/(?:больше|меньше|чаще|реже)\s+всего/.test(normalized)
+    !/(?:больше|большег|меньше|меньшег|чаще|реже)\w*\s+всего/.test(normalized)
   ) {
     return "sum";
   }
@@ -112,10 +121,63 @@ function isMonthQuestion(question: string) {
   return /месяц|помесяч|по\s+месяц/i.test(question);
 }
 
+const WEEKDAY_NAMES = [
+  "понедельник",
+  "вторник",
+  "среда",
+  "четверг",
+  "пятница",
+  "суббота",
+  "воскресенье",
+] as const;
+
+function editDistance(a: string, b: string) {
+  if (a === b) return 0;
+  if (!a.length) return b.length;
+  if (!b.length) return a.length;
+
+  const prev = Array.from({ length: b.length + 1 }, (_, index) => index);
+  const curr = Array.from({ length: b.length + 1 }, () => 0);
+
+  for (let i = 1; i <= a.length; i += 1) {
+    curr[0] = i;
+    for (let j = 1; j <= b.length; j += 1) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      curr[j] = Math.min(prev[j] + 1, curr[j - 1] + 1, prev[j - 1] + cost);
+    }
+    for (let j = 0; j <= b.length; j += 1) prev[j] = curr[j];
+  }
+
+  return prev[b.length];
+}
+
+/** Fixes common weekday typos like «всторник» → «вторник». */
+function normalizeWeekdayTypos(question: string) {
+  return question.replace(/[а-яёa-z]+/gi, (token) => {
+    const lower = token.toLowerCase().replaceAll("ё", "е");
+    if ((WEEKDAY_NAMES as readonly string[]).includes(lower)) return token;
+
+    let best: string | null = null;
+    let bestDist = Infinity;
+    for (const day of WEEKDAY_NAMES) {
+      if (Math.abs(day.length - lower.length) > 2) continue;
+      const distance = editDistance(lower, day);
+      if (distance < bestDist) {
+        bestDist = distance;
+        best = day;
+      }
+    }
+
+    const maxDist = lower.length <= 4 ? 1 : 2;
+    if (best && bestDist > 0 && bestDist <= maxDist) return best;
+    return token;
+  });
+}
+
 function isTemporalQuestion(question: string) {
   return (
     isMonthQuestion(question) ||
-    /когда|в\s+какой\s+день|по\s+дням|по\s+датам|за\s+какой\s+день|в\s+какую\s+дат|квартал|понедельник|вторник|среда|четверг|пятниц|суббот|воскресен/i.test(
+    /когда|в\s+какой\s+день|по\s+дням|по\s+датам|за\s+какой\s+день|в\s+какую\s+дат|квартал|понедельник|вторник|среда|четверг|пятниц|суббот|воскресен|\d{1,2}[./-]\d{1,2}(?:[./-]\d{2,4})?|\d{1,2}\s+(?:январ|феврал|март|апрел|ма[йя]|июн|июл|август|сентябр|октябр|ноябр|декабр)/i.test(
       question,
     )
   );
@@ -415,6 +477,208 @@ function formatCell(value: unknown) {
   return isoDate ? `${isoDate[3]}.${isoDate[2]}.${isoDate[1]}` : raw;
 }
 
+const MONTH_NAME_TO_NUMBER: Record<string, number> = {
+  январ: 1,
+  феврал: 2,
+  март: 3,
+  апрел: 4,
+  май: 5,
+  мая: 5,
+  июн: 6,
+  июл: 7,
+  август: 8,
+  сентябр: 9,
+  октябр: 10,
+  ноябр: 11,
+  декабр: 12,
+};
+
+function dayMonthKey(value: string): string | null {
+  const raw = value.toLowerCase().replaceAll("ё", "е").trim();
+
+  const iso = raw.match(/^(\d{4})[./-](\d{1,2})[./-](\d{1,2})$/);
+  if (iso) return `${Number(iso[3])}.${Number(iso[2])}`;
+
+  const ru = raw.match(/^(\d{1,2})[./-](\d{1,2})(?:[./-](\d{2,4}))?$/);
+  if (ru) return `${Number(ru[1])}.${Number(ru[2])}`;
+
+  const named = raw.match(
+    /^(\d{1,2})\s+(январ|феврал|март|апрел|ма[йя]|июн|июл|август|сентябр|октябр|ноябр|декабр)/i,
+  );
+  if (named) {
+    const month =
+      MONTH_NAME_TO_NUMBER[named[2].toLowerCase().slice(0, 3)] ??
+      MONTH_NAME_TO_NUMBER[named[2].toLowerCase()];
+    if (month) return `${Number(named[1])}.${month}`;
+  }
+
+  return null;
+}
+
+function questionDayMonthKeys(question: string) {
+  const normalized = question.toLowerCase().replaceAll("ё", "е");
+  const keys = new Set<string>();
+
+  for (const match of normalized.matchAll(
+    /(\d{1,2})[./-](\d{1,2})(?:[./-](\d{2,4}))?/g,
+  )) {
+    keys.add(`${Number(match[1])}.${Number(match[2])}`);
+  }
+
+  for (const match of normalized.matchAll(
+    /(\d{1,2})\s+(январ|феврал|март|апрел|ма[йя]|июн|июл|август|сентябр|октябр|ноябр|декабр)/g,
+  )) {
+    const month =
+      MONTH_NAME_TO_NUMBER[match[2].toLowerCase().slice(0, 3)] ??
+      MONTH_NAME_TO_NUMBER[match[2].toLowerCase()];
+    if (month) keys.add(`${Number(match[1])}.${month}`);
+  }
+
+  return keys;
+}
+
+function russianCaseStem(value: string) {
+  const raw = value.toLowerCase().replaceAll("ё", "е").trim();
+  const withoutSoft = raw.replace(/ь$/u, "");
+  const endings = [
+    "ями",
+    "ами",
+    "ого",
+    "ему",
+    "ыми",
+    "ими",
+    "ой",
+    "ей",
+    "ом",
+    "ем",
+    "ах",
+    "ях",
+    "ов",
+    "ев",
+    "ую",
+    "юю",
+    "ая",
+    "яя",
+    "ые",
+    "ие",
+    "ый",
+    "ий",
+    "ы",
+    "и",
+    "а",
+    "я",
+    "у",
+    "ю",
+    "е",
+    "о",
+  ];
+  for (const ending of endings) {
+    if (
+      withoutSoft.endsWith(ending) &&
+      withoutSoft.length - ending.length >= 4
+    ) {
+      return withoutSoft.slice(0, -ending.length);
+    }
+  }
+  return withoutSoft.length >= 4 ? withoutSoft : raw;
+}
+
+function labelMatchesQuestion(label: string, question: string) {
+  const normalizedQuestion = question.toLowerCase().replaceAll("ё", "е");
+  const normalizedLabel = label.toLowerCase().replaceAll("ё", "е");
+  if (normalizedQuestion.includes(normalizedLabel)) return true;
+
+  const labelDayMonth = dayMonthKey(normalizedLabel);
+  if (labelDayMonth) {
+    // Date-like labels: only day+month (and full string), never bare year tokens.
+    return questionDayMonthKeys(question).has(labelDayMonth);
+  }
+
+  const labelStem = russianCaseStem(normalizedLabel);
+  if (labelStem.length >= 4) {
+    const questionTokens = normalizedQuestion.match(/[a-zа-я0-9]{3,}/gi) ?? [];
+    if (
+      questionTokens.some((token) => {
+        const tokenStem = russianCaseStem(token);
+        return (
+          tokenStem === labelStem ||
+          (tokenStem.length >= 4 &&
+            (tokenStem.startsWith(labelStem) || labelStem.startsWith(tokenStem)))
+        );
+      })
+    ) {
+      return true;
+    }
+  }
+
+  const labelTokens = normalizedLabel.match(/[a-zа-я0-9]{3,}/gi) ?? [];
+  return labelTokens.some(
+    (token) =>
+      !/^\d{4}$/.test(token) && normalizedQuestion.includes(token),
+  );
+}
+
+function isSoldStatusLabel(label: string) {
+  return /^(?:продан[аоы]?|sold|реализован[аоы]?)$/i.test(label.trim());
+}
+
+function isStatusLikeColumn(name: string) {
+  return /статус|status|этап|stage|state|состоян/i.test(name);
+}
+
+function isEntityCategoryName(name: string) {
+  return /марка|модел|бренд|brand|товар|product|напит|drink|авто|машин|car/i.test(
+    name,
+  );
+}
+
+/** Category whose cell values are mentioned in the question (e.g. «в Казани»). */
+function findCategoryWithMentionedValue(
+  source: DataSource,
+  categories: CategoryColumn[],
+  question: string,
+): CategoryColumn | null {
+  const normalizedQuestion = question.toLowerCase().replaceAll("ё", "е");
+  const soldVerb = /прода[нл]|sold/i.test(normalizedQuestion);
+  let best: { column: CategoryColumn; score: number } | null = null;
+
+  for (const category of categories) {
+    const labels = new Set<string>();
+    for (const row of source.rows) {
+      const label = formatCell(row[category.index])?.trim();
+      if (label && label !== "—") labels.add(label);
+    }
+
+    let bestLabelLength = 0;
+    for (const label of labels) {
+      if (!labelMatchesQuestion(label, normalizedQuestion)) continue;
+      // «продан Geely» must not treat verb «продан» as Статус value mention.
+      if (
+        soldVerb &&
+        isStatusLikeColumn(category.name) &&
+        isSoldStatusLabel(label)
+      ) {
+        continue;
+      }
+      bestLabelLength = Math.max(bestLabelLength, label.length);
+    }
+    if (!bestLabelLength) continue;
+
+    const locationBonus = /город|city|регион|район|филиал|локац|площадк/i.test(
+      category.name,
+    )
+      ? 20
+      : 0;
+    const entityBonus = isEntityCategoryName(category.name) ? 30 : 0;
+    const score = bestLabelLength + locationBonus + entityBonus;
+    if (!best || score > best.score) {
+      best = { column: category, score };
+    }
+  }
+
+  return best?.column ?? null;
+}
+
 function rowContext(
   source: DataSource,
   rowIndex: number,
@@ -437,15 +701,23 @@ function calculateGrouped(
   category: CategoryColumn,
   operation: Operation,
   question?: string,
-  options?: { bucketByMonth?: boolean },
+  options?: { bucketByMonth?: boolean; soldOnly?: boolean },
 ): ChatAnswer | null {
   const groups = new Map<
     string,
     { values: number[]; rowIndexes: number[] }
   >();
   const bucketByMonth = Boolean(options?.bucketByMonth);
+  const soldOnly = Boolean(options?.soldOnly);
+  const statusIndex = soldOnly
+    ? source.headers.findIndex((header) => isStatusLikeColumn(header))
+    : -1;
 
   for (const item of numeric.values) {
+    if (statusIndex >= 0) {
+      const status = formatCell(source.rows[item.rowIndex]?.[statusIndex]).trim();
+      if (!isSoldStatusLabel(status)) continue;
+    }
     const raw = source.rows[item.rowIndex]?.[category.index];
     const label = (
       bucketByMonth ? monthLabelFromCell(raw) : formatCell(raw)
@@ -473,12 +745,9 @@ function calculateGrouped(
   const normalizedQuestion = (question ?? "")
     .toLowerCase()
     .replaceAll("ё", "е");
-  const mentioned = aggregated.find((item) => {
-    const normalizedLabel = item.label.toLowerCase().replaceAll("ё", "е");
-    if (normalizedQuestion.includes(normalizedLabel)) return true;
-    const labelTokens = normalizedLabel.match(/[a-zа-я0-9]{3,}/gi) ?? [];
-    return labelTokens.some((token) => normalizedQuestion.includes(token));
-  });
+  const mentioned = aggregated.find((item) =>
+    labelMatchesQuestion(item.label, normalizedQuestion),
+  );
 
   if (mentioned && operation !== "max" && operation !== "min") {
     const opLabel =
@@ -490,6 +759,21 @@ function calculateGrouped(
     return {
       answer: `${opLabel} «${numeric.name}» для «${category.name}: ${mentioned.label}» — ${formatNumber(mentioned.value)}.`,
       citations: rowCitations(mentioned.rowIndexes),
+    };
+  }
+
+  // Concrete day/date was asked, but no matching rows after flexible date match.
+  if (
+    question &&
+    questionDayMonthKeys(question).size > 0 &&
+    /дата|date|день|day/i.test(category.name)
+  ) {
+    const asked = [...questionDayMonthKeys(question)][0];
+    const [day, month] = asked.split(".");
+    const pretty = `${day.padStart(2, "0")}.${month.padStart(2, "0")}`;
+    return {
+      answer: `За дату ${pretty} в отчёте нет строк с значениями по «${numeric.name}».`,
+      citations: [{ id: "schema", label: "Структура отчёта" }],
     };
   }
 
@@ -558,6 +842,70 @@ function priceLikeColumn(numeric: NumericColumn[]) {
   );
 }
 
+function quantityLikeColumn(numeric: NumericColumn[]) {
+  return (
+    numeric.find((column) =>
+      /колич|кол-?во|count|qty|quantity|штук/i.test(column.name),
+    ) ?? null
+  );
+}
+
+function unitPriceLikeColumn(numeric: NumericColumn[]) {
+  return (
+    numeric.find((column) => /цена|стоим|\bprice\b/i.test(column.name)) ?? null
+  );
+}
+
+/** «сколько машин/штук продано» — units, not money. */
+function asksSoldUnitCount(question: string) {
+  return /машин|автомоб|\bавто\b|\bcars?\b|vehicle|штук|единиц|порци|чаш|сколько\s+раз|раз\s+был[аи]?\s+продан/i.test(
+    question,
+  );
+}
+
+/** Sold / sales wording, including «продано» (not only «продаж»). */
+function mentionsSalesOrSold(question: string) {
+  return /прода[нлж]|выруч|заказ|прибыл|доход|sales|revenue|orders?|profit/i.test(
+    question,
+  );
+}
+
+/** One row = one sold unit when the report has no quantity column. */
+function rowUnitCountColumn(source: DataSource): NumericColumn {
+  return {
+    index: -1,
+    name: "Количество",
+    values: source.rows.map((_, rowIndex) => ({ rowIndex, value: 1 })),
+  };
+}
+
+/** When report has qty + unit price, «продажи» = кол-во × цена (same as dashboard). */
+function salesAmountColumn(
+  source: DataSource,
+  numeric: NumericColumn[],
+): NumericColumn | null {
+  const qty = quantityLikeColumn(numeric);
+  const unitPrice = unitPriceLikeColumn(numeric);
+  if (qty && unitPrice) {
+    const values = source.rows.flatMap((row, rowIndex) => {
+      const quantity = toNumber(row[qty.index]);
+      const price = toNumber(row[unitPrice.index]);
+      if (quantity === null || price === null) return [];
+      return [{ rowIndex, value: quantity * price }];
+    });
+    if (!values.length) return null;
+    return { index: unitPrice.index, name: "Сумма продаж", values };
+  }
+
+  return (
+    numeric.find((column) =>
+      /выруч|revenue|продаж|sales|сумм|прибыл|profit|amount/i.test(column.name),
+    ) ??
+    unitPriceLikeColumn(numeric) ??
+    null
+  );
+}
+
 function answerExtremeChallenge(
   source: DataSource,
   question: string,
@@ -619,12 +967,12 @@ function answerWhereMostByCategory(
     );
   const asksMost =
     !asksLeastPopularity &&
-    /популярн|чаще\s+всего|больше\s+всего|самый\s+част|наибольшее\s+(?:число|количеств)|в\s+каком[\s\S]{0,48}(?:больше|чаще|наибольш)|(?:какой|какая)\s+(?:район|категор|клуб|день|дата)[\s\S]{0,24}(?:больше|чаще|наибольш)/i.test(
+    /популярн|лидир|чаще\s+всего|больше\s+всего|большого\s+всего|самый\s+част|наибольшее\s+(?:число|количеств)|в\s+каком[\s\S]{0,48}(?:больше|чаще|наибольш|лидир)|(?:какой|какая|какую|какое)\s+(?:район|категор|клуб|день|дата|модел|марк|бренд|товар|продукт|напит)[\s\S]{0,48}(?:больше|большег|чаще|наибольш|лидир)|что\s+(?:берут|покупают|продают|продавали)/i.test(
       question,
     );
   const asksLeast =
     asksLeastPopularity ||
-    /меньше\s+всего|реже\s+всего|наименьш|самый\s+редк|в\s+каком[\s\S]{0,48}(?:меньше|реже|наимень)|(?:какой|какая)\s+(?:район|категор|клуб|день|дата)[\s\S]{0,24}(?:меньше|реже|наимень)/i.test(
+    /меньше\s+всего|меньшего\s+всего|реже\s+всего|наименьш|сам[аяоые]+\s+редк|в\s+каком[\s\S]{0,48}(?:меньше|меньшег|реже|наимень)|(?:какой|какая|какую|какое)\s+(?:район|категор|клуб|день|дата|модел|марк|бренд|товар|продукт|напит)[\s\S]{0,48}(?:меньше|меньшег|реже|наимень|редк)/i.test(
       question,
     );
 
@@ -667,37 +1015,82 @@ function answerWhereMostByCategory(
       ) ?? null
     : null;
 
+  const asksLocation =
+    /(?:^|[^\p{L}\d])где(?=[^\p{L}\d]|$)|в\s+каком\s+(?:город|район|регион|филиал|месте)|каком\s+город|в\s+каком\s+месте/iu.test(
+      question,
+    );
+  const isLocationLike = (name: string) =>
+    /город|city|регион|район|филиал|локац|площадк|место|location|адрес/i.test(
+      name,
+    );
+  const preferredLocation = asksLocation
+    ? categories.find((column) => isLocationLike(column.name)) ?? null
+    : null;
+
   const asksAboutEntity =
-    /машин|авто|car|vehicle|товар|продукт|напит|drink|клуб|бренд|марк|модел/i.test(
+    /машин|авто|car|vehicle|товар|продукт|напит|drink|клуб|бренд|марк|модел|что\s+(?:берут|покупают)/i.test(
       question,
     );
   const isStatusLike = (name: string) =>
     /статус|status|этап|stage|state|состоян/i.test(name);
   const isEntityLike = (name: string) =>
-    /марка|модел|бренд|brand|авто|машин|car|товар|product|напит|drink|клуб|филиал|район|город|канал/i.test(
+    /марка|модел|бренд|brand|авто|машин|car|товар|product|напит|drink|клуб|канал/i.test(
       name,
     );
+  const isDateLike = (name: string) =>
+    /дата|date|день|day|месяц|month|период|period|время|time|week/i.test(name);
 
   const selectedByQuestion = selectColumn(categories, question);
   const preferredEntity =
-    asksAboutEntity
-      ? categories.find((column) => isEntityLike(column.name)) ?? null
+    asksAboutEntity && !asksLocation
+      ? (/модел/i.test(question)
+          ? categories.find((column) => /модел/i.test(column.name))
+          : null) ??
+        (/марк|бренд|brand/i.test(question)
+          ? categories.find((column) => /марка|бренд|brand/i.test(column.name))
+          : null) ??
+        categories.find((column) => isEntityLike(column.name)) ??
+        null
+      : null;
+
+  // «Что берут больше всего?» — prefer product/drink over date.
+  const preferredCatalog =
+    !asksLocation &&
+    !temporalQuestion &&
+    (asksMost || asksLeast) &&
+    !/день|дат|когда|месяц/i.test(question)
+      ? categories.find((column) =>
+          /напит|drink|товар|product|марка|модел|бренд|клуб/i.test(column.name),
+        ) ?? null
       : null;
 
   const groupColumn =
     temporalColumn ??
+    preferredLocation ??
     (selectedByQuestion &&
-    !(asksAboutEntity && isStatusLike(selectedByQuestion.name))
+    !(asksAboutEntity && isStatusLike(selectedByQuestion.name)) &&
+    !(asksLocation && !isLocationLike(selectedByQuestion.name)) &&
+    !(preferredCatalog && isDateLike(selectedByQuestion.name))
       ? selectedByQuestion
       : null) ??
     preferredEntity ??
+    preferredCatalog ??
     (() => {
       const inferred = inferBestCategoryIndex(source, {
         excludeIndexes: [
           ...numeric.map((column) => column.index),
-          ...(asksAboutEntity
+          ...(asksAboutEntity || preferredCatalog
             ? categories
-                .filter((column) => isStatusLike(column.name))
+                .filter(
+                  (column) =>
+                    isStatusLike(column.name) ||
+                    (preferredCatalog ? isDateLike(column.name) : false),
+                )
+                .map((column) => column.index)
+            : []),
+          ...(asksLocation
+            ? categories
+                .filter((column) => !isLocationLike(column.name))
                 .map((column) => column.index)
             : []),
         ],
@@ -708,9 +1101,11 @@ function answerWhereMostByCategory(
         : null;
     })() ??
     categories.find((column) =>
-      /район|город|регион|канал|категор|сегмент|источник|source|марка|бренд|клуб|филиал|локац|площадк|тренер|gym|club|напит|drink|beverage/i.test(
-        column.name,
-      ),
+      asksLocation
+        ? isLocationLike(column.name)
+        : /район|город|регион|канал|категор|сегмент|источник|source|марка|бренд|клуб|филиал|локац|площадк|тренер|gym|club|напит|drink|beverage|товар|модел/i.test(
+            column.name,
+          ),
     ) ??
     null;
   if (!groupColumn) return null;
@@ -732,17 +1127,49 @@ function answerWhereMostByCategory(
     { rowIndexes: number[]; distinct: Set<string>; metricValues: number[] }
   >();
 
+  const asksSalesVolume = /прода[нлж]|заказ|покуп/i.test(question);
   const popularityByMetric =
-    /покуп|продаж|заказ|количеств|штук|чаш/i.test(question) ||
+    asksSalesVolume ||
+    /количеств|штук|чаш/i.test(question) ||
     /популярн|непопулярн|не\s+популярн/.test(normalizedQuestion);
+
+  // Day/region «больше всего продаж» must use sales volume, not raw row count.
+  // Brand/model popularity with «продали» still ranks by count, not by price sum.
+  const wantsMoneyMetric =
+    /выруч|сумм|цена|стоим|прибыл|доход|amount|revenue/i.test(question);
   const selectedMetric =
     numeric.find((column) =>
-      /колич|кол-?во|count|qty|quantity|продаж|sales|orders?/i.test(column.name),
+      /заказ|order|колич|кол-?во|count|qty|quantity/i.test(column.name),
     ) ??
+    (asksSalesVolume && asksSoldUnitCount(question)
+      ? rowUnitCountColumn(source)
+      : null) ??
+    (asksSalesVolume &&
+    (Boolean(temporalColumn) || asksLocation || wantsMoneyMetric)
+      ? numeric.find((column) =>
+          /выруч|revenue|продаж|sales|сумм|amount/i.test(column.name),
+        ) ??
+        salesAmountColumn(source, numeric) ??
+        (temporalColumn || asksLocation
+          ? rowUnitCountColumn(source)
+          : null)
+      : null) ??
     (popularityByMetric ? null : selectColumn(numeric, question)) ??
     null;
 
+  const statusIndex = source.headers.findIndex((header) =>
+    isStatusLikeColumn(header),
+  );
+  const soldOnly =
+    asksSalesVolume &&
+    statusIndex >= 0 &&
+    !isStatusLike(groupColumn.name);
+
   for (let rowIndex = 0; rowIndex < source.rows.length; rowIndex += 1) {
+    if (soldOnly) {
+      const status = formatCell(source.rows[rowIndex]?.[statusIndex]).trim();
+      if (!isSoldStatusLabel(status)) continue;
+    }
     const label = formatCell(source.rows[rowIndex]?.[groupColumn.index]).trim();
     if (!label || label === "—") continue;
     const group = groups.get(label) ?? {
@@ -752,7 +1179,11 @@ function answerWhereMostByCategory(
     };
     group.rowIndexes.push(rowIndex);
     if (selectedMetric) {
-      const metricValue = toNumber(source.rows[rowIndex]?.[selectedMetric.index]);
+      const metricValue =
+        selectedMetric.index < 0
+          ? (selectedMetric.values.find((item) => item.rowIndex === rowIndex)
+              ?.value ?? 1)
+          : toNumber(source.rows[rowIndex]?.[selectedMetric.index]);
       if (metricValue !== null) group.metricValues.push(metricValue);
     }
     if (typeColumn) {
@@ -766,11 +1197,12 @@ function answerWhereMostByCategory(
 
   if (!groups.size) return null;
 
+  const useMetricSum = Boolean(popularityByMetric && selectedMetric);
   const ranked = [...groups.entries()].map(([label, group]) => ({
     label,
     value: countDistinctTypes
       ? group.distinct.size
-      : popularityByMetric && selectedMetric
+      : useMetricSum
         ? group.metricValues.reduce((sum, item) => sum + item, 0)
         : group.rowIndexes.length,
     rowIndexes: group.rowIndexes,
@@ -785,23 +1217,25 @@ function answerWhereMostByCategory(
       : winners[0].value < 5
         ? "типа"
         : "типов"
-    : winners[0].value === 1
-      ? "запись"
-      : winners[0].value < 5
-        ? "записи"
-        : "записей";
+    : useMetricSum && selectedMetric
+      ? ""
+      : winners[0].value === 1
+        ? "запись"
+        : winners[0].value < 5
+          ? "записи"
+          : "записей";
   const metricUnit =
-    popularityByMetric && selectedMetric
+    useMetricSum && selectedMetric
       ? `по «${selectedMetric.name}»`
       : null;
 
   if (winners.length === 1) {
     return {
       answer: !asksLeast && /популярн/i.test(question)
-        ? `Самый популярный «${groupColumn.name}» — «${winners[0].label}»: ${formatNumber(winners[0].value)} ${metricUnit ?? unit}.`
+        ? `Самый популярный «${groupColumn.name}» — «${winners[0].label}»: ${formatNumber(winners[0].value)} ${metricUnit ?? unit}.`.trim()
         : asksLeast
-          ? `По «${groupColumn.name}» меньше всего у «${winners[0].label}»: ${formatNumber(winners[0].value)} ${metricUnit ?? unit}.`
-        : `В «${groupColumn.name}» лидирует «${winners[0].label}»: ${formatNumber(winners[0].value)} ${metricUnit ?? unit}.`,
+          ? `По «${groupColumn.name}» меньше всего у «${winners[0].label}»: ${formatNumber(winners[0].value)} ${metricUnit ?? unit}.`.trim()
+        : `В «${groupColumn.name}» лидирует «${winners[0].label}»: ${formatNumber(winners[0].value)} ${metricUnit ?? unit}.`.trim(),
       citations: rowCitations(winners[0].rowIndexes),
     };
   }
@@ -809,7 +1243,7 @@ function answerWhereMostByCategory(
   return {
     answer: `По «${groupColumn.name}» одинаковый ${asksLeast ? "минимум" : "максимум"} у нескольких значений (${formatNumber(target)} ${metricUnit ?? unit}):\n${winners
       .map((item) => `• «${item.label}»`)
-      .join("\n")}`,
+      .join("\n")}`.replace(/\s+:/, ":"),
     citations: rowCitations(winners.flatMap((item) => item.rowIndexes)),
   };
 }
@@ -855,11 +1289,108 @@ function answerPendingTasks(
   };
 }
 
+/** «Какие машины были проданы 13.07?» — list entities for a concrete day. */
+function answerListedEntitiesForDate(
+  source: DataSource,
+  question: string,
+): ChatAnswer | null {
+  const asksList =
+    /каки[ех]\s+(?:машин|авто|модел|марк|товар|напит|бренд)|что\s+(?:за\s+)?(?:машин|авто)\s+был|какая\s+машин[аы]\s+был/i.test(
+      question,
+    );
+  if (!asksList) return null;
+
+  const dayKeys = questionDayMonthKeys(question);
+  if (!dayKeys.size) return null;
+  if (!source.rows.length || !source.headers.length) return null;
+
+  const numeric = numericColumns(source);
+  const categories = categoryColumns(source, numeric);
+  const dateCol = dateLikeColumnWithProfile(source, categories);
+  if (!dateCol) return null;
+
+  const brandCol =
+    categories.find((column) => /марка|бренд|brand/i.test(column.name)) ?? null;
+  const modelCol =
+    categories.find((column) => /модел/i.test(column.name)) ?? null;
+  const productCol =
+    categories.find((column) =>
+      /товар|продукт|напит|product|drink/i.test(column.name),
+    ) ?? null;
+  if (!brandCol && !modelCol && !productCol) return null;
+
+  const statusIndex = source.headers.findIndex((header) =>
+    isStatusLikeColumn(header),
+  );
+  const soldOnly =
+    mentionsSalesOrSold(question) &&
+    statusIndex >= 0 &&
+    !/в\s+наличи|резерв|возврат/i.test(question);
+
+  const matches: Array<{ rowIndex: number; label: string }> = [];
+  for (let rowIndex = 0; rowIndex < source.rows.length; rowIndex += 1) {
+    const rawDate = source.rows[rowIndex]?.[dateCol.index];
+    const dateLabel = formatCell(rawDate).trim();
+    const key =
+      dayMonthKey(dateLabel) ?? dayMonthKey(String(rawDate ?? "").trim());
+    if (!key || !dayKeys.has(key)) continue;
+
+    if (soldOnly) {
+      const status = formatCell(source.rows[rowIndex]?.[statusIndex]).trim();
+      if (!isSoldStatusLabel(status)) continue;
+    }
+
+    const brand = brandCol
+      ? formatCell(source.rows[rowIndex]?.[brandCol.index]).trim()
+      : "";
+    const model = modelCol
+      ? formatCell(source.rows[rowIndex]?.[modelCol.index]).trim()
+      : "";
+    const product = productCol
+      ? formatCell(source.rows[rowIndex]?.[productCol.index]).trim()
+      : "";
+    const label =
+      [brand, model].filter((part) => part && part !== "—").join(" ") ||
+      (product && product !== "—" ? product : "");
+    if (!label) continue;
+    matches.push({ rowIndex, label });
+  }
+
+  const asked = [...dayKeys][0];
+  if (!matches.length) {
+    return {
+      answer: soldOnly
+        ? `За ${asked} в отчёте нет проданных позиций.`
+        : `За ${asked} в отчёте нет подходящих строк.`,
+      citations: [{ id: "schema", label: "Структура отчёта" }],
+    };
+  }
+
+  const unique = [...new Set(matches.map((item) => item.label))];
+  const noun = /напит/i.test(question)
+    ? "напитки"
+    : /товар|продукт/i.test(question)
+      ? "товары"
+      : "машины";
+
+  return {
+    answer: `${soldOnly ? "Проданы" : "В отчёте"} за ${asked}: ${unique
+      .map((item) => `«${item}»`)
+      .join(", ")} (${unique.length} ${noun}).`,
+    citations: rowCitations(matches.map((item) => item.rowIndex)),
+  };
+}
+
 export function answerDeterministically(
   source: DataSource,
   question: string,
   history: ChatTurn[] = [],
 ): ChatAnswer | null {
+  question = normalizeWeekdayTypos(question);
+  question = question
+    .replace(/меньшего\s+всего/gi, "меньше всего")
+    .replace(/большого\s+всего/gi, "больше всего");
+
   if (isStructureQuestion(question)) {
     return answerStructureQuestion(source);
   }
@@ -881,6 +1412,9 @@ export function answerDeterministically(
 
   const pendingTasks = answerPendingTasks(source, question);
   if (pendingTasks) return pendingTasks;
+
+  const listedForDate = answerListedEntitiesForDate(source, question);
+  if (listedForDate) return listedForDate;
 
   const categoryCount = answerTotalEntityCount(source, question);
   if (categoryCount) return categoryCount;
@@ -907,49 +1441,136 @@ export function answerDeterministically(
     }
   }
 
-  if (
-    !selectedNumeric &&
-    /продаж|выруч|заказ|прибыл|доход|sales|revenue|orders?|profit/i.test(
-      question,
-    )
-  ) {
+  if (!selectedNumeric && mentionsSalesOrSold(question)) {
+    const asksOrders =
+      /заказ|order/i.test(question) &&
+      !/прода[нлж]|выруч|revenue|profit/i.test(question);
+    const asksQtyExplicitly =
+      /штук|чаш|порци|количеств|кол-?во|\bqty\b|quantity/i.test(question);
+    const prefersUnits = asksQtyExplicitly || asksSoldUnitCount(question);
     const prefersRevenue =
       /прибыл|доход|выруч|revenue|profit/i.test(question) &&
-      !/заказ|order/i.test(question);
-    selectedNumeric =
-      selectColumn(
-        numeric.filter((column) =>
-          /заказ|order|продаж|sales|выруч|revenue|прибыл|доход/i.test(
-            column.name,
+      !asksOrders &&
+      !prefersUnits;
+
+    if (prefersUnits || asksOrders) {
+      selectedNumeric =
+        selectColumn(
+          numeric.filter((column) =>
+            /заказ|order|колич|кол-?во|count|qty|quantity|продаж|sales/i.test(
+              column.name,
+            ),
           ),
-        ),
-        question,
-      ) ??
-      (prefersRevenue
-        ? numeric.find((column) => /выруч|revenue|прибыл|доход/i.test(column.name))
-        : undefined) ??
-      numeric.find((column) =>
-        /заказ|order|продаж|sales/i.test(column.name),
-      ) ??
-      numeric.find((column) => /выруч|revenue/i.test(column.name)) ??
-      null;
+          question,
+        ) ??
+        numeric.find((column) =>
+          /заказ|order|колич|кол-?во|count|qty|quantity/i.test(column.name),
+        ) ??
+        (prefersUnits ? rowUnitCountColumn(source) : null);
+    } else {
+      selectedNumeric =
+        salesAmountColumn(source, numeric) ??
+        selectColumn(
+          numeric.filter((column) =>
+            /заказ|order|продаж|sales|выруч|revenue|прибыл|доход/i.test(
+              column.name,
+            ),
+          ),
+          question,
+        ) ??
+        (prefersRevenue
+          ? numeric.find((column) =>
+              /выруч|revenue|прибыл|доход/i.test(column.name),
+            )
+          : undefined) ??
+        numeric.find((column) =>
+          /заказ|order|продаж|sales/i.test(column.name),
+        ) ??
+        numeric.find((column) =>
+          /выруч|revenue|сумм|amount/i.test(column.name),
+        ) ??
+        quantityLikeColumn(numeric) ??
+        null;
+    }
   }
 
   if (!selectedNumeric) return null;
 
+  // «Сколько продаж» with qty+price → money (кол-во × цена), not raw quantity.
+  // Keep units for «сколько машин/штук продано».
+  if (
+    selectedNumeric &&
+    /продаж|sales|выруч|revenue|прибыл|доход/i.test(question) &&
+    !asksSoldUnitCount(question) &&
+    !/штук|чаш|порци|количеств|кол-?во|\bqty\b|quantity|заказ|order/i.test(
+      question,
+    ) &&
+    /колич|кол-?во|count|qty|quantity/i.test(selectedNumeric.name)
+  ) {
+    selectedNumeric = salesAmountColumn(source, numeric) ?? selectedNumeric;
+  }
+
+  // «Сколько машин продано» → units (qty or row count), never unit price / revenue.
+  if (mentionsSalesOrSold(question) && asksSoldUnitCount(question)) {
+    const qty = quantityLikeColumn(numeric);
+    const unitPrice = unitPriceLikeColumn(numeric);
+    if (qty) {
+      selectedNumeric = qty;
+    } else if (
+      !selectedNumeric ||
+      selectedNumeric.index === unitPrice?.index ||
+      /цена|стоим|price|сумма продаж|выруч|revenue|amount/i.test(
+        selectedNumeric.name,
+      )
+    ) {
+      selectedNumeric = rowUnitCountColumn(source);
+    }
+  }
+
   const categories = categoryColumns(source, numeric);
   const monthQuestion = isMonthQuestion(question);
-  const temporalCategory = isTemporalQuestion(question)
-    ? dateLikeColumnWithProfile(source, categories)
-    : null;
-  const selectedCategory =
-    temporalCategory ?? selectColumn(categories, question);
   const mentionsConcreteTemporalValue =
-    /понедельник|вторник|среда|четверг|пятниц|суббот|воскресен|январ|феврал|март|апрел|ма[йя]|июн|июл|август|сентябр|октябр|ноябр|декабр|\d{1,2}[./-]\d{1,2}(?:[./-]\d{2,4})?|\d{4}[./-]\d{1,2}(?:[./-]\d{1,2})?/i.test(
+    /понедельник|вторник|среда|четверг|пятниц|суббот|воскресен|январ|феврал|март|апрел|ма[йя]|июн|июл|август|сентябр|октябр|ноябр|декабр|\d{1,2}[./-]\d{1,2}(?:[./-]\d{2,4})?|\d{4}[./-]\d{1,2}(?:[./-]\d{1,2})?|\d{1,2}\s+(?:январ|феврал|март|апрел|ма[йя]|июн|июл|август|сентябр|октябр|ноябр|декабр)/i.test(
       question,
     );
+  const temporalCategory =
+    isTemporalQuestion(question) || mentionsConcreteTemporalValue
+      ? dateLikeColumnWithProfile(source, categories)
+      : null;
+  const valueMentionCategory = findCategoryWithMentionedValue(
+    source,
+    categories,
+    question,
+  );
+  const selectedByHeader = selectColumn(categories, question);
+  // Prefer concrete cell values (Geely) over header keywords; never let status beat a brand mention.
+  const selectedCategory =
+    temporalCategory ??
+    (valueMentionCategory &&
+    (!selectedByHeader ||
+      isEntityCategoryName(valueMentionCategory.name) ||
+      isStatusLikeColumn(selectedByHeader.name))
+      ? valueMentionCategory
+      : null) ??
+    selectedByHeader ??
+    valueMentionCategory;
+
+  // «Сколько Geely продали / продаж у Geely» → count of units, not price sum.
+  if (
+    valueMentionCategory &&
+    isEntityCategoryName(valueMentionCategory.name) &&
+    mentionsSalesOrSold(question) &&
+    !/выруч|прибыл|доход|цена|стоим|сумм(?:а|у|ы)?\s+продаж|на\s+сумм/i.test(
+      question,
+    )
+  ) {
+    selectedNumeric =
+      quantityLikeColumn(numeric) ?? rowUnitCountColumn(source);
+  }
+
   const asksForGrouping =
     Boolean(temporalCategory) ||
+    Boolean(valueMentionCategory) ||
     monthQuestion ||
     mentionsConcreteTemporalValue ||
     /\bпо\b|в\s+каком|како[а-яё]*\s+(?:категор|товар|канал|день|месяц|дат|район|город)/i.test(
@@ -965,6 +1586,10 @@ export function answerDeterministically(
   }
 
   if (selectedCategory && asksForGrouping) {
+    const soldOnly =
+      mentionsSalesOrSold(question) &&
+      !isStatusLikeColumn(selectedCategory.name) &&
+      source.headers.some((header) => isStatusLikeColumn(header));
     const grouped = calculateGrouped(
       source,
       selectedNumeric,
@@ -975,6 +1600,7 @@ export function answerDeterministically(
         bucketByMonth:
           monthQuestion &&
           /дата|date|день|day|месяц|month/i.test(selectedCategory.name),
+        soldOnly,
       },
     );
     if (grouped) return grouped;

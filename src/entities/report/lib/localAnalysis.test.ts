@@ -93,7 +93,11 @@ describe("analyzeLocally metrics", () => {
   it("builds a multi-sentence local narrative when AI is unavailable", () => {
     const analysis = analyzeLocally(salesFixture);
     expect(analysis.summary.split(/(?<=[.!?…])\s+/).length).toBeGreaterThanOrEqual(2);
-    expect(analysis.summary).toMatch(/пик|лидер|выгрузка/i);
+    expect(analysis.summary).toMatch(/лидер|срез|товар|регион|чат/i);
+    // Hero text must not tautologically repeat metric cards (count / peak / average).
+    expect(analysis.summary).not.toMatch(/содержит \d+ записей.*Пик по/i);
+    expect(analysis.summary).not.toMatch(/Пик по «Выручка»/i);
+    expect(analysis.summary).not.toMatch(/среднее —/i);
   });
 
   it("adds clearer context for operational metrics", () => {
@@ -114,8 +118,9 @@ describe("analyzeLocally metrics", () => {
 
     const analysis = analyzeLocally(jiraLike);
     expect(analysis.summary).toMatch(/создано/i);
-    expect(analysis.summary).toMatch(/задач/i);
+    expect(analysis.summary).toMatch(/операц|показател/i);
     expect(analysis.summary).toMatch(/Закрыто|На ревью|Баги/i);
+    expect(analysis.summary).not.toMatch(/Пик по «Создано»/i);
   });
 
   it("uses a fixed polished narrative for jira demo", () => {

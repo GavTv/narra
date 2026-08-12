@@ -99,14 +99,28 @@ export function ReportChat({ source }: ReportChatProps) {
                           <FileSearch2 className="size-3" />
                           Источник
                         </span>
-                        {message.citations?.map((citation) => (
-                          <span
-                            key={citation.id}
-                            className="rounded-full border border-[var(--line)] bg-white/80 px-2 py-1 text-[9px] font-medium text-[var(--steel)]"
-                          >
-                            {citation.label}
-                          </span>
-                        ))}
+                        {message.citations?.map((citation) => {
+                          const id = String(citation.id ?? "");
+                          const raw = String(citation.label ?? "");
+                          const label = /^(?:schema|row-\d+|text-\d+)$/i.test(
+                            raw.trim(),
+                          )
+                            ? /^schema$/i.test(raw.trim())
+                              ? "Структура отчёта"
+                              : raw.replace(/^row-/i, "Строка ")
+                            : raw ||
+                              (/^schema$/i.test(id)
+                                ? "Структура отчёта"
+                                : id.replace(/^row-/i, "Строка "));
+                          return (
+                            <span
+                              key={id || label}
+                              className="rounded-full border border-[var(--line)] bg-white/80 px-2 py-1 text-[9px] font-medium text-[var(--steel)]"
+                            >
+                              {label}
+                            </span>
+                          );
+                        })}
                       </div>
                     )}
                 </div>

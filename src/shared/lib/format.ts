@@ -121,12 +121,49 @@ export function mergeChartPointsByDate(points: ChartPoint[], limit = 14) {
     }
   }
 
-  return [...groups.values()]
-    .sort((a, b) => a.sort - b.sort)
-    .slice(-limit)
-    .map(({ label, value, secondary }) =>
-      secondary === undefined ? { label, value } : { label, value, secondary },
-    );
+  const sorted = [...groups.values()].sort((a, b) => a.sort - b.sort);
+  const sliced =
+    !limit || limit <= 0 || sorted.length <= limit
+      ? sorted
+      : sorted.slice(-limit);
+
+  return sliced.map(({ label, value, secondary }) =>
+    secondary === undefined ? { label, value } : { label, value, secondary },
+  );
+}
+
+/** Keep chart readable, but never hide the global peak day. */
+export function pickTimelineWindow<T extends { label: string; value: number }>(
+  points: T[],
+  maxPoints = 40,
+): { data: T[]; truncated: boolean; peak: T | null } {
+  if (!points.length) {
+    return { data: [], truncated: false, peak: null };
+  }
+
+  const peak = points.reduce((best, item) =>
+    item.value > best.value ? item : best,
+  );
+
+  if (points.length <= maxPoints) {
+    return { data: points, truncated: false, peak };
+  }
+
+  let end = points.length;
+  let start = Math.max(0, end - maxPoints);
+  const peakIndex = points.findIndex(
+    (item) => item.label === peak.label && item.value === peak.value,
+  );
+  if (peakIndex >= 0 && peakIndex < start) {
+    start = peakIndex;
+    end = Math.min(points.length, start + maxPoints);
+  }
+
+  return {
+    data: points.slice(start, end),
+    truncated: start > 0 || end < points.length,
+    peak,
+  };
 }
 
 export function formatFileSize(bytes: number) {

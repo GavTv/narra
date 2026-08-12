@@ -17,7 +17,7 @@
 
 ## Стек
 
-Next.js, TypeScript, Tailwind CSS, Motion, Recharts, Gemini API, OpenRouter, Groq, LangChain.js, LangGraph.js, Papa Parse, read-excel-file, Zod, Vitest.
+Next.js, TypeScript, Tailwind CSS, Motion, Recharts, Gemini API, LangChain.js, LangGraph.js, Papa Parse, read-excel-file, Zod, Vitest.
 
 ## Запуск
 
@@ -30,19 +30,12 @@ npm run dev
 В `.env.local`:
 
 ```env
-GEMINI_API_KEY=your_gemini_key
+GEMINI_API_KEY=your_key
 GEMINI_MODEL=gemini-flash-latest
 GEMINI_FALLBACK_MODEL=gemini-2.5-flash-lite
-
-# Рекомендуется, если Gemini упёрся в квоту
-OPENROUTER_API_KEY=your_openrouter_key
-OPENROUTER_MODEL=openai/gpt-4o
-AI_PROVIDER=openrouter
 ```
 
-Ключ OpenRouter: [openrouter.ai/keys](https://openrouter.ai/keys).  
-Важно: подписка **ChatGPT Plus не равна API-ключу**; через OpenRouter можно взять `openai/gpt-4o` отдельно.  
-Опционально: `OPENAI_API_KEY` с [platform.openai.com](https://platform.openai.com/api-keys) или `GROQ_API_KEY`.
+Откройте [http://localhost:3000](http://localhost:3000). Без ключа можно использовать кнопку «Демо-отчёт».
 
 Проверки:
 
@@ -78,20 +71,20 @@ src/
 ## Как устроено
 
 1. Файл разбирается в браузере (`features/parseUpload`) и нормализуется до безопасной табличной структуры.
-2. `/api/analyze` делегирует в `server/analyzeReport`: валидация Zod → LLM (Gemini / OpenRouter / OpenAI / Groq) → local fallback → DTO.
+2. `/api/analyze` делегирует в `server/analyzeReport`: валидация Zod → Gemini → local fallback → DTO.
 3. Модель выбирает типы графиков, но может использовать только значения из отчёта.
 4. `/api/chat` делегирует в `server/askReport`: индекс → LangGraph RAG → local fallback → DTO.
-5. LangGraph направляет точные вычисления в локальный query engine, а смысловые вопросы — в lexical retriever и LLM.
+5. LangGraph направляет точные вычисления в локальный query engine, а смысловые вопросы — в lexical retriever и Gemini.
 6. Модель получает только найденные фрагменты и возвращает structured answer с проверяемыми citations.
-7. Если LLM недоступна или упёрлась в квоту, приложение остаётся рабочим благодаря локальному анализатору.
+7. Если LLM недоступна, приложение остаётся рабочим благодаря локальному анализатору.
 
-Данные и индекс не сохраняются на сервере; сессия держится в `sessionStorage` вкладки. В MVP анализируется первый лист XLSX; контекст ограничен 500 строками и 75 000 символами. Для такого объёма BM25-подобный поиск проще и точнее контролируется, чем внешняя векторная база.
+Данные и индекс не сохраняются. В MVP анализируется первый лист XLSX; контекст ограничен 500 строками и 75 000 символами. Для такого объёма BM25-подобный поиск проще и точнее контролируется, чем внешняя векторная база.
 
 ## Deploy
 
 1. Залейте репозиторий на GitHub.
 2. Import в [Vercel](https://vercel.com/new).
-3. Environment Variables: `GEMINI_API_KEY` и желательно `OPENROUTER_API_KEY` (опционально `GROQ_API_KEY`, `AI_PROVIDER`, модели).
+3. Environment Variables: `GEMINI_API_KEY` (опционально `GEMINI_MODEL`, `GEMINI_FALLBACK_MODEL`).
 4. Deploy. Root = корень репо, framework = Next.js.
 
 ## Как использовался AI

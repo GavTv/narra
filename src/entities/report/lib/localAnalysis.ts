@@ -4,6 +4,7 @@ import { NO_DATA_STUB } from "@/shared/consts/messages";
 import {
   formatNumber,
   mergeChartPointsByDate,
+  pickTimelineWindow,
   toNumber,
 } from "@/shared/lib/format";
 
@@ -47,6 +48,38 @@ function isMoneyColumn(name: string) {
   return /цена|стоим|выруч|revenue|price|amount|продаж|sales|сумм|прибыл|profit/i.test(
     name,
   );
+}
+
+function quantityColumn(columns: NumericColumn[]) {
+  return (
+    columns.find((column) =>
+      /колич|кол-?во|count|qty|quantity|штук/i.test(column.name),
+    ) ?? null
+  );
+}
+
+function unitPriceColumn(columns: NumericColumn[]) {
+  return (
+    columns.find((column) => /цена|стоим|\bprice\b/i.test(column.name)) ?? null
+  );
+}
+
+/** Line sales = qty × unit price when both columns exist. */
+function salesAmountValues(
+  source: DataSource,
+  columns: NumericColumn[],
+): Array<{ value: number; rowIndex: number }> | null {
+  const qty = quantityColumn(columns);
+  const price = unitPriceColumn(columns);
+  if (!qty || !price) return null;
+
+  const values = source.rows.flatMap((row, rowIndex) => {
+    const quantity = toNumber(row[qty.index]);
+    const unit = toNumber(row[price.index]);
+    if (quantity === null || unit === null) return [];
+    return [{ value: quantity * unit, rowIndex }];
+  });
+  return values.length ? values : null;
 }
 
 function metricPriority(name: string) {
@@ -336,7 +369,7 @@ export function reportOverview(source: DataSource) {
   return { title, summary: contentSummary(source), eyebrow: "Обзор отчёта" };
 }
 
-/** 2–3 factual sentences for the hero when AI narrative is unavailable. */
+/** 2–3 sentences for the hero — insights beyond the three metric cards. */
 export function buildLocalNarrative(source: DataSource): string {
   if (isJiraDemoSource(source)) {
     return "Выгрузка по Jira за неделю: 5 дней наблюдений. Максимум созданных задач — 32 во вторник, среднее — 24,4 задач в день. Дополнительно в отчёте отслеживаются: Закрыто, На ревью, Cycle time (ч) и Баги.";
@@ -352,42 +385,63 @@ export function buildLocalNarrative(source: DataSource): string {
     columns.find((column) => isMoneyColumn(column.name)) ?? columns[0];
   const topic = reportTopic(source);
   const stem = fileStem(source.name);
-  const sentences: string[] = [
-    topic.startsWith("«")
-      ? `Выгрузка «${stem}» содержит ${source.stats.rows} записей по теме ${topic}.`
-      : `Выгрузка «${stem}» содержит ${source.stats.rows} записей по ${topic}.`,
-  ];
+  const dateIndex = inferDateColumnIndex(source);
+  const sentences: string[] = [];
 
-  if (!primary) {
-    sentences.push(contentSummary(source));
-    return sentences.slice(0, 2).join(" ");
+  // Period / scope — not the same as «Всего записей» card.
+  if (dateIndex >= 0) {
+    const dates = source.rows
+      .map((row) => String(row[dateIndex] ?? "").trim())
+      .filter((value) => value && value !== "—");
+    const uniqueDays = new Set(dates.map((value) => chartDateKeySafe(value) || value));
+    const first = dates[0];
+    const last = dates.at(-1);
+    if (first && last && uniqueDays.size > 1) {
+      sentences.push(
+        topic.startsWith("«")
+          ? `«${stem}» — срез по ${topic} за ${uniqueDays.size} дней (${formatChartLabelSafe(first)}–${formatChartLabelSafe(last)}).`
+          : `«${stem}» — срез по ${topic} за ${uniqueDays.size} дней (${formatChartLabelSafe(first)}–${formatChartLabelSafe(last)}).`,
+      );
+    } else {
+      sentences.push(
+        topic.startsWith("«")
+          ? `«${stem}» — табличный срез по теме ${topic}.`
+          : `«${stem}» — табличный срез по ${topic}.`,
+      );
+    }
+  } else {
+    sentences.push(
+      topic.startsWith("«")
+        ? `«${stem}» — табличный срез по теме ${topic}.`
+        : `«${stem}» — табличный срез по ${topic}.`,
+    );
   }
 
-  const labels = getLabels(source, columns);
-  const peak = primary.values.reduce((best, item) =>
-    item.value > best.value ? item : best,
+  // Operational exports: name the tracked indicators instead of restating peak/average cards.
+  const opsColumns = columns.filter((column) =>
+    /создан|закрыт|баг|ревью|review|cycle|выполн|открыт/i.test(column.name),
   );
-  const peakLabel = labels[peak.rowIndex] ?? `строке ${peak.rowIndex + 1}`;
-  const noun = metricNoun(primary.name);
-  const primaryLabelWithUnit =
-    noun === "значений" ? primary.name : `${primary.name} (${noun})`;
-  sentences.push(
-    `Пик по «${primary.name}» — ${formatNumber(primary.max)} ${noun} (${peakLabel}); среднее — ${formatNumber(primary.average)} ${noun}.`,
-  );
+  if (opsColumns.length >= 2 && sentences.length < 3) {
+    sentences.push(
+      `В фокусе показатели: ${opsColumns
+        .slice(0, 4)
+        .map((column) => column.name)
+        .join(", ")}${opsColumns.length > 4 ? " и др" : ""}.`,
+    );
+    sentences.push(
+      "Сравнивайте дни и статусы в графиках ниже или уточните вопрос в чате.",
+    );
+    return sentences.slice(0, 3).join(" ");
+  }
 
-  const dateIndex = source.headers.findIndex((header) =>
-    /дата|date|день|day|period|период/i.test(header),
-  );
-  const categoryIndex = source.headers.findIndex(
-    (header, index) =>
-      index !== dateIndex &&
-      !columns.some((column) => column.index === index) &&
-      /тип|категор|район|город|регион|товар|product|канал|source|марка|бренд|клуб|филиал|segment|этап|статус/i.test(
-        header,
-      ),
-  );
+  const categoryIndex = inferBestCategoryIndex(source, {
+    excludeIndexes: [
+      dateIndex,
+      ...columns.map((column) => column.index),
+    ].filter((index) => index >= 0),
+  });
 
-  if (categoryIndex >= 0 && isMoneyColumn(primary.name)) {
+  if (categoryIndex >= 0 && primary && isMoneyColumn(primary.name)) {
     const groups = new Map<string, number>();
     for (const item of primary.values) {
       const raw = String(
@@ -400,8 +454,14 @@ export function buildLocalNarrative(source: DataSource): string {
     const total = ranked.reduce((sum, [, value]) => sum + value, 0);
     if (ranked.length >= 2 && total > 0) {
       const share = Math.round((ranked[0][1] / total) * 100);
+      const secondShare =
+        ranked.length >= 2
+          ? Math.round((ranked[1][1] / total) * 100)
+          : null;
       sentences.push(
-        `Лидер по «${source.headers[categoryIndex]}» — «${ranked[0][0]}» (около ${share}% суммы).`,
+        secondShare !== null
+          ? `По «${source.headers[categoryIndex]}» лидирует «${ranked[0][0]}» (~${share}% суммы), далее «${ranked[1][0]}» (~${secondShare}%).`
+          : `По «${source.headers[categoryIndex]}» лидирует «${ranked[0][0]}» (~${share}% суммы).`,
       );
     }
   } else if (categoryIndex >= 0) {
@@ -413,25 +473,64 @@ export function buildLocalNarrative(source: DataSource): string {
     }
     const ranked = [...counts.entries()].sort((a, b) => b[1] - a[1]);
     if (ranked.length >= 2) {
-      const share = Math.round((ranked[0][1] / source.rows.length) * 100);
       sentences.push(
-        `Чаще всего встречается «${ranked[0][0]}» в «${source.headers[categoryIndex]}» — ${ranked[0][1]} из ${source.rows.length} (${share}%).`,
-      );
-    }
-  } else {
-    const secondary =
-      columns.find((column) => column.index !== primary.index) ?? null;
-    if (secondary) {
-      sentences.push(
-        `Дополнительно смотрим «${secondary.name}»: максимум ${formatNumber(secondary.max)}, среднее ${formatNumber(secondary.average)}.`,
+        `В «${source.headers[categoryIndex]}» чаще всего «${ranked[0][0]}» (${ranked[0][1]} из ${source.rows.length}), реже всего «${ranked.at(-1)?.[0]}».`,
       );
     }
   }
 
-  const extras = compactMetricsSummary(columns, primary.index);
-  if (extras) sentences.push(extras);
+  // Second dimension if available (e.g. region after product).
+  const secondCategory = source.headers.findIndex(
+    (header, index) =>
+      index !== categoryIndex &&
+      index !== dateIndex &&
+      !columns.some((column) => column.index === index) &&
+      /регион|город|район|канал|статус|филиал|region|city/i.test(header),
+  );
+  if (secondCategory >= 0 && sentences.length < 3) {
+    const counts = new Map<string, number>();
+    for (const row of source.rows) {
+      const raw = String(row[secondCategory] ?? "").trim();
+      if (!raw || raw === "—") continue;
+      counts.set(raw, (counts.get(raw) ?? 0) + 1);
+    }
+    const ranked = [...counts.entries()].sort((a, b) => b[1] - a[1]);
+    if (ranked.length >= 2) {
+      sentences.push(
+        `По «${source.headers[secondCategory]}» больше всего строк у «${ranked[0][0]}» (${ranked.length} значений в разрезе).`,
+      );
+    }
+  } else if (sentences.length < 3) {
+    sentences.push(
+      "Ниже — ключевые метрики и графики; детали можно уточнить в чате по отчёту.",
+    );
+  }
 
   return sentences.slice(0, 3).join(" ");
+}
+
+function chartDateKeySafe(value: string) {
+  try {
+    // local lightweight key without importing private helpers twice
+    const iso = value.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
+    const ru = value.match(/^(\d{1,2})[./-](\d{1,2})[./-](\d{2,4})$/);
+    if (ru) {
+      const year = ru[3].length === 2 ? `20${ru[3]}` : ru[3];
+      return `${year}-${ru[2].padStart(2, "0")}-${ru[1].padStart(2, "0")}`;
+    }
+  } catch {
+    // ignore
+  }
+  return value;
+}
+
+function formatChartLabelSafe(value: string) {
+  const iso = value.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (iso) return `${iso[3]}.${iso[2]}`;
+  const ru = value.match(/^(\d{1,2})[./-](\d{1,2})[./-](\d{2,4})$/);
+  if (ru) return `${ru[1].padStart(2, "0")}.${ru[2].padStart(2, "0")}`;
+  return value;
 }
 
 function isUsableAiNarrative(summary: string) {
@@ -459,9 +558,11 @@ function metricsLookUnsafe(metrics: Metric[]) {
 function normalizeCharts(charts: ChartSpec[]) {
   return charts.map((chart) => {
     if (chart.type !== "line") return chart;
+    const merged = mergeChartPointsByDate(chart.data, 0);
+    const { data } = pickTimelineWindow(merged, 40);
     return {
       ...chart,
-      data: mergeChartPointsByDate(chart.data),
+      data,
     };
   });
 }
@@ -566,9 +667,12 @@ function makeTableAnalysis(source: DataSource): DashboardAnalysis {
 
   const charts: ChartSpec[] = [];
   const dateIndex = inferDateColumnIndex(source);
-  const moneyMode = isMoneyColumn(primary.name) && dateIndex >= 0;
+  const lineSales = salesAmountValues(source, columns);
+  const moneyMode =
+    (Boolean(lineSales) || isMoneyColumn(primary.name)) && dateIndex >= 0;
+  const moneyValues = lineSales ?? (moneyMode ? primary.values : null);
 
-  const timelineSource = primary.values.map((item) => {
+  const timelineSource = (moneyValues ?? primary.values).map((item) => {
     const rawLabel =
       dateIndex >= 0
         ? String(source.rows[item.rowIndex]?.[dateIndex] ?? "")
@@ -579,20 +683,28 @@ function makeTableAnalysis(source: DataSource): DashboardAnalysis {
       value: item.value,
     };
   });
-  const timelineData = mergeChartPointsByDate(timelineSource, 14);
-  const dailyPeak = timelineData.reduce(
-    (best, item) => (item.value > best.value ? item : best),
-    timelineData[0] ?? { label: "", value: 0 },
+  const allTimelineData = mergeChartPointsByDate(timelineSource, 0);
+  const { data: timelineData, truncated, peak: dailyPeak } = pickTimelineWindow(
+    allTimelineData,
+    40,
   );
+  const peakPoint = dailyPeak ?? {
+    label: "",
+    value: 0,
+  };
 
   charts.push({
     id: "trend",
     type: timelineData.length >= 4 ? "line" : "bar",
     title: moneyMode ? "Сумма продаж по дням" : primaryLabelWithUnit,
-    subtitle: moneyMode ? "Сумма за день" : `По дням · ${noun}`,
+    subtitle: moneyMode
+      ? truncated
+        ? "Фрагмент периода · пик за все дни"
+        : "Сумма за день"
+      : `По дням · ${noun}`,
     valueLabel: moneyMode ? "Сумма продаж" : primaryLabelWithUnit,
     insight: moneyMode
-      ? `Пик дня — ${dailyPeak.label}: ${formatNumber(dailyPeak.value)}.`
+      ? `Пик дня — ${peakPoint.label}: ${formatNumber(peakPoint.value)}.`
       : `Динамика «${primaryLabelWithUnit}».`,
     data: timelineData,
   });
@@ -635,7 +747,7 @@ function makeTableAnalysis(source: DataSource): DashboardAnalysis {
 
   if (moneyMode && categoryIndex >= 0 && charts.length < 3) {
     const groups = new Map<string, number>();
-    for (const item of primary.values) {
+    for (const item of moneyValues ?? primary.values) {
       const raw = String(source.rows[item.rowIndex]?.[categoryIndex] ?? "").trim();
       if (!raw || raw === "—") continue;
       groups.set(raw, (groups.get(raw) ?? 0) + item.value);
@@ -1043,15 +1155,19 @@ export function answerSalesQuestion(
 
   const normalized = question.toLowerCase();
   const asksMax =
-    /сам[а-яё]*\s+(?:больш|высок)|максим|наибольш|больше всего/i.test(
+    /сам[а-яё]*\s+(?:больш|высок|прибыльн|выгодн)|максим|наибольш|больше всего|пик/i.test(
       normalized,
     );
   const asksMin =
-    /сам[а-яё]*\s+(?:мал|низк)|миним|наименьш|меньше всего/i.test(normalized);
+    /сам[а-яё]*\s+(?:мал|низк|не\s*прибыльн)|миним|наименьш|меньше всего/i.test(
+      normalized,
+    );
   const asksRevenue = /выруч/i.test(normalized);
   const asksOrders = /заказ|прода[лж]|реализац/i.test(normalized);
   const asksProduct =
-    /товар|продукт|како[а-яё]*\s+прода|что\s+прода/i.test(normalized);
+    /товар|продукт|како[а-яё]*\s+прода|что\s+прода|что\s+принесл/i.test(
+      normalized,
+    );
   const topCount = requestedTopCount(question);
   const place = requestedRankPlace(question);
 
@@ -1072,12 +1188,15 @@ export function answerSalesQuestion(
   }
 
   if (asksProduct && (asksMax || asksMin)) {
-    const metric = asksRevenue && !asksOrders ? "revenue" : "orders";
+    const metric =
+      asksOrders && !asksRevenue && !/прибыльн|выгодн|выруч/i.test(normalized)
+        ? "orders"
+        : "revenue";
     const direction = asksMax ? "max" : "min";
     return rankedProductAnswer(records, direction, metric, topCount);
   }
 
-  if (asksRevenue && (asksMax || asksMin)) {
+  if (asksRevenue && (asksMax || asksMin) && !/месяц/i.test(normalized)) {
     const totals = aggregateSales(records);
     const target = (asksMax ? Math.max : Math.min)(
       ...totals.map((item) => item.revenue),
@@ -1140,7 +1259,8 @@ export function answerSalesQuestion(
 
   if (
     mentionedProduct &&
-    /(?:сколько|всего|итог).*(?:заказ|выруч|продаж)|(?:заказ|выруч|продаж).*(?:всего|итог|сколько)/i.test(
+    !/(?:больше|меньше|чаще|реже)\s+всего/i.test(normalized) &&
+    /(?:сколько|всего|итог|общ\w*).*(?:заказ|выруч|продаж)|(?:заказ|выруч|продаж).*(?:сколько|всего|итог|общ)/i.test(
       normalized,
     )
   ) {
@@ -1153,7 +1273,8 @@ export function answerSalesQuestion(
   }
 
   if (
-    /(?:сколько|всего|итог).*(?:продаж|заказ|выруч)|(?:продаж|заказ|выруч).*(?:сколько|всего|итог)/i.test(
+    !/(?:больше|меньше|чаще|реже)\s+всего/i.test(normalized) &&
+    /(?:сколько|всего|итог|общ\w*).*(?:продаж|заказ|выруч)|(?:продаж|заказ|выруч).*(?:сколько|всего|итог|общ)|общ\w*\s+выруч|выручк[аиуе]\s+за\s+период/i.test(
       normalized,
     )
   ) {

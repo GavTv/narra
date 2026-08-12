@@ -280,6 +280,32 @@ describe("answerDeterministically", () => {
     expect(least?.answer).not.toMatch(/Информация отсутствует/i);
   });
 
+  it("ranks peak sales day by revenue, not by number of rows", () => {
+    const fixture = {
+      name: "sales.csv",
+      kind: "csv" as const,
+      content: "x",
+      headers: ["Дата", "Товар", "Выручка", "Заказы"],
+      rows: [
+        ["2026-05-10", "A", 100, 1],
+        ["2026-05-10", "B", 100, 1],
+        ["2026-05-10", "C", 100, 1],
+        ["2026-05-16", "A", 50, 1],
+        ["2026-05-16", "B", 50, 1],
+        ["2026-05-16", "C", 50, 1],
+        ["2026-07-01", "A", 900, 5],
+      ],
+      stats: { rows: 7, columns: 4, characters: 1 },
+    };
+
+    const result = answerDeterministically(
+      fixture,
+      "В какой день было больше всего продаж?",
+    );
+    expect(result?.answer).toMatch(/01\.07\.2026|2026-07-01/);
+    expect(result?.answer).not.toMatch(/10\.05|16\.05|одинаковый максимум/i);
+  });
+
   it("answers min/max by day using metric values, not row count", () => {
     const bugsFixture = {
       name: "bugs.csv",
@@ -334,6 +360,22 @@ describe("answerDeterministically", () => {
     expect(result?.answer).toMatch(/9/);
     expect(result?.answer).toMatch(/вторник/i);
     expect(result?.answer).not.toMatch(/уточните показатель|Информация отсутствует/i);
+
+    const created = answerDeterministically(
+      bugsFixture,
+      "Сколько задач было создано во вторник?",
+    );
+    expect(created?.answer).toMatch(/32/);
+    expect(created?.answer).toMatch(/вторник|Создано/i);
+    expect(created?.answer).not.toMatch(/Сумма по показателю «Создано» — 83/);
+
+    const typo = answerDeterministically(
+      bugsFixture,
+      "Сколько задач было создано во всторник?",
+    );
+    expect(typo?.answer).toMatch(/32/);
+    expect(typo?.answer).toMatch(/вторник|Создано/i);
+    expect(typo?.answer).not.toMatch(/Сумма по показателю «Создано»/);
   });
 
   it("prefers drink category over date for popularity questions", () => {
@@ -491,6 +533,136 @@ describe("answerDeterministically", () => {
     expect(notClosed?.answer).not.toMatch(/Сумма по показателю «Закрыто» — 105/);
   });
 
+  it("answers sales for short date 11.08 matching 11.08.2026 rows", () => {
+    const drinksFixture = {
+      name: "drinks.csv",
+      kind: "csv" as const,
+      content: "x",
+      headers: ["Дата", "Напиток", "Количество", "Цена"],
+      rows: [
+        ["10.08.2026", "Латте", 2, 230],
+        ["11.08.2026", "Капучино", 3, 220],
+        ["11.08.2026", "Эспрессо", 1, 150],
+        ["12.08.2026", "Капучино", 2, 220],
+      ],
+      stats: { rows: 4, columns: 4, characters: 1 },
+    };
+
+    const byDate = answerDeterministically(
+      drinksFixture,
+      "сколько продаж было 11.08",
+    );
+    // 3×220 + 1×150 = 810 (кол-во × цена), not raw qty 4
+    expect(byDate?.answer).toMatch(/11\.08/);
+    expect(byDate?.answer).toMatch(/810/);
+    expect(byDate?.answer).toMatch(/Сумма продаж|Цена/i);
+    expect(byDate?.answer).not.toMatch(/Кол-во|Количество/i);
+    expect(byDate?.answer).not.toMatch(/нет в отчёте|нет строк/i);
+  });
+
+  it("counts cars sold on short date 02.08 using quantity, not price", () => {
+    const carsFixture = {
+      name: "cars.csv",
+      kind: "csv" as const,
+      content: "x",
+      headers: ["Дата", "Марка", "Количество", "Цена"],
+      rows: [
+        ["02.08.2026", "Toyota", 2, 1_200_000],
+        ["02.08.2026", "Skoda", 1, 900_000],
+        ["02.08.2026", "BMW", 5, 3_000_000],
+        ["03.08.2026", "Skoda", 14, 800_000],
+        ["11.08.2026", "Audi", 3, 2_200_000],
+      ],
+      stats: { rows: 5, columns: 4, characters: 1 },
+    };
+
+    const byDate = answerDeterministically(
+      carsFixture,
+      "сколько машин было продано 02.08",
+    );
+    expect(byDate?.answer).toMatch(/02\.08|2\.8/);
+    expect(byDate?.answer).toMatch(/8/);
+    expect(byDate?.answer).toMatch(/Количество/i);
+    expect(byDate?.answer).not.toMatch(/5\s*100|5100000|Сумма продаж|Информация отсутствует/i);
+
+    const byIso = answerDeterministically(
+      {
+        ...carsFixture,
+        rows: [
+          ["2026-08-02", "Toyota", 2, 1_200_000],
+          ["2026-08-02", "Skoda", 1, 900_000],
+          ["2026-08-02", "BMW", 5, 3_000_000],
+          ["2026-08-03", "Skoda", 14, 800_000],
+        ],
+        stats: { rows: 4, columns: 4, characters: 1 },
+      },
+      "сколько машин было продано 02.08",
+    );
+    expect(byIso?.answer).toMatch(/8/);
+    expect(byIso?.answer).not.toMatch(/Информация отсутствует/i);
+  });
+
+  it("counts car rows sold on a date when there is no quantity column", () => {
+    const carsFixture = {
+      name: "cars.csv",
+      kind: "csv" as const,
+      content: "x",
+      headers: ["Дата", "Марка", "Модель", "Цена"],
+      rows: [
+        ["02.08.2026", "Toyota", "Camry", 1_200_000],
+        ["02.08.2026", "Skoda", "Octavia", 900_000],
+        ["02.08.2026", "BMW", "X5", 3_000_000],
+        ["03.08.2026", "Audi", "A6", 2_200_000],
+      ],
+      stats: { rows: 4, columns: 4, characters: 1 },
+    };
+
+    const byDate = answerDeterministically(
+      carsFixture,
+      "сколько машин было продано 02.08",
+    );
+    expect(byDate?.answer).toMatch(/3/);
+    expect(byDate?.answer).not.toMatch(/5\s*100|5100000|Цена|Информация отсутствует/i);
+  });
+
+  it("filters sales by city mentioned in question, including case forms", () => {
+    const carsFixture = {
+      name: "cars.csv",
+      kind: "csv" as const,
+      content: "x",
+      headers: ["Дата", "Марка", "Цена", "Город"],
+      rows: [
+        ["2026-01-01", "Toyota", 1_200_000, "Москва"],
+        ["2026-01-02", "BMW", 3_000_000, "Казань"],
+        ["2026-01-03", "Audi", 2_200_000, "Казань"],
+        ["2026-01-04", "Skoda", 900_000, "СПб"],
+      ],
+      stats: { rows: 4, columns: 4, characters: 1 },
+    };
+
+    const kazan = answerDeterministically(
+      carsFixture,
+      "Сколько продаж было в Казани ?",
+    );
+    expect(kazan?.answer).toMatch(/Казань/);
+    expect(kazan?.answer).toMatch(/5\s*200\s*000|5200000/);
+    expect(kazan?.answer).not.toMatch(/7\s*300\s*000|Сумма по показателю «Цена» — 7/);
+
+    const typo = answerDeterministically(
+      carsFixture,
+      "Сколько продаж было в Казане ?",
+    );
+    expect(typo?.answer).toMatch(/Казань/);
+    expect(typo?.answer).toMatch(/5\s*200\s*000|5200000/);
+
+    const moscow = answerDeterministically(
+      carsFixture,
+      "Сколько продаж было в Москве?",
+    );
+    expect(moscow?.answer).toMatch(/Москва/);
+    expect(moscow?.answer).toMatch(/1\s*200\s*000|1200000/);
+  });
+
   it("ranks popular cars by brand, not by status", () => {
     const carsFixture = {
       name: "cars.csv",
@@ -523,5 +695,75 @@ describe("answerDeterministically", () => {
     expect(least?.answer).toMatch(/Марка|Модель/);
     expect(least?.answer).toMatch(/Audi/);
     expect(least?.answer).not.toMatch(/Статус|Возврат|Самый популярный/i);
+
+    const where = answerDeterministically(
+      carsFixture,
+      "Где было больше всего продано машин?",
+    );
+    expect(where?.answer).toMatch(/Город/);
+    expect(where?.answer).toMatch(/Москва/);
+    expect(where?.answer).not.toMatch(/Марка|Lada|Toyota|BMW|Audi/);
+
+    const geelySold = answerDeterministically(
+      {
+        ...carsFixture,
+        rows: [
+          ["2026-01-01", "Geely", "Coolray", "Продан", 1_200_000, 40_000, 2018, "Москва"],
+          ["2026-01-02", "Geely", "Atlas", "Продан", 1_500_000, 30_000, 2019, "Москва"],
+          ["2026-01-03", "Geely", "Coolray", "В наличии", 1_300_000, 20_000, 2020, "СПб"],
+          ["2026-01-04", "Toyota", "Camry", "Продан", 1_100_000, 50_000, 2017, "Казань"],
+          ["2026-01-05", "Geely", "Monjaro", "Продан", 2_200_000, 60_000, 2016, "Москва"],
+        ],
+        stats: { rows: 5, columns: 8, characters: 1 },
+      },
+      "сколько раз был продан Geely?",
+    );
+    expect(geelySold?.answer).toMatch(/Geely/i);
+    expect(geelySold?.answer).toMatch(/3/);
+    expect(geelySold?.answer).not.toMatch(/Статус|Цена/);
+
+    const leastModel = answerDeterministically(
+      {
+        ...carsFixture,
+        rows: [
+          ["2026-01-01", "Toyota", "Camry", "Продан", 1_200_000, 40_000, 2018, "Москва"],
+          ["2026-01-02", "Toyota", "Camry", "Продан", 1_500_000, 30_000, 2019, "Москва"],
+          ["2026-01-03", "BMW", "X5", "Продан", 3_000_000, 20_000, 2020, "СПб"],
+          ["2026-01-04", "Toyota", "RAV4", "Продан", 1_100_000, 50_000, 2017, "Казань"],
+          ["2026-01-05", "Audi", "A6", "Продан", 2_200_000, 60_000, 2016, "Москва"],
+          ["2026-01-06", "BMW", "X5", "Продан", 2_500_000, 25_000, 2021, "Москва"],
+        ],
+        stats: { rows: 6, columns: 8, characters: 1 },
+      },
+      "Какую модель продали меньшего всего?",
+    );
+    expect(leastModel?.answer).toMatch(/Модель/);
+    expect(leastModel?.answer).toMatch(/RAV4|A6/);
+    expect(leastModel?.answer).not.toMatch(/Сумма по показателю|Цена/);
+  });
+
+  it("lists cars sold on a concrete short date", () => {
+    const fixture = {
+      name: "cars.csv",
+      kind: "csv" as const,
+      content: "x",
+      headers: ["Дата продажи", "Марка", "Модель", "Статус", "Цена"],
+      rows: [
+        ["2026-07-13", "Hyundai", "Solaris", "В наличии", 1_000_000],
+        ["2026-07-13", "Lada", "Vesta", "В наличии", 900_000],
+        ["2026-07-13", "Hyundai", "Solaris", "Продан", 1_100_000],
+        ["2026-07-13", "Geely", "Coolray", "Продан", 1_200_000],
+        ["2026-07-14", "Toyota", "Camry", "Продан", 1_300_000],
+      ],
+      stats: { rows: 5, columns: 5, characters: 1 },
+    };
+
+    const result = answerDeterministically(
+      fixture,
+      "какие машины были проданы 13.07 числа?",
+    );
+    expect(result?.answer).toMatch(/Hyundai Solaris/i);
+    expect(result?.answer).toMatch(/Geely Coolray/i);
+    expect(result?.answer).not.toMatch(/Vesta|В наличии|Информация отсутствует/i);
   });
 });
